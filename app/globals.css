@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -29,7 +29,6 @@
 html, body {
   background: var(--bg-base);
   color: var(--text-primary);
-  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
@@ -55,7 +54,6 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-primary);
-  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 13px;
   padding: 10px 14px;
   width: 100%;
@@ -71,7 +69,6 @@ html, body {
 .btn-primary {
   background: var(--accent-gold);
   color: #0a0b0e;
-  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.02em;
@@ -91,7 +88,6 @@ html, body {
 .btn-ghost {
   background: transparent;
   color: var(--text-secondary);
-  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.01em;
@@ -114,7 +110,6 @@ html, body {
   background: rgba(239, 68, 68, 0.08);
   color: var(--accent-red);
   border: 1px solid rgba(239, 68, 68, 0.2);
-  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 11px;
   font-weight: 600;
   padding: 6px 12px;
@@ -131,7 +126,6 @@ html, body {
   background: rgba(34, 197, 94, 0.08);
   color: var(--accent-green);
   border: 1px solid rgba(34, 197, 94, 0.2);
-  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 11px;
   font-weight: 600;
   padding: 6px 12px;
@@ -145,7 +139,6 @@ html, body {
 .btn-success:hover { background: rgba(34, 197, 94, 0.18); }
 
 .label {
-  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -156,7 +149,6 @@ html, body {
 }
 
 .section-title {
-  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 17px;
   font-weight: 700;
   color: var(--text-primary);
@@ -167,7 +159,7 @@ html, body {
   background: rgba(34, 197, 94, 0.1);
   color: var(--accent-green);
   border: 1px solid rgba(34, 197, 94, 0.2);
-  font-family: 'DM Mono', monospace;  /* ← เปลี่ยน */
+  font-family: 'DM Mono', monospace;  
   font-size: 10px;
   padding: 3px 8px;
   border-radius: 99px;
@@ -177,7 +169,7 @@ html, body {
   background: rgba(239, 68, 68, 0.1);
   color: var(--accent-red);
   border: 1px solid rgba(239, 68, 68, 0.2);
-  font-family: 'DM Mono', monospace;  /* ← เปลี่ยน */
+  font-family: 'DM Mono', monospace;  
   font-size: 10px;
   padding: 3px 8px;
   border-radius: 99px;
