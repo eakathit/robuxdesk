@@ -2,73 +2,65 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  Wallet,
-  Package,
-  TrendingUp,
-  Plus,
-  DollarSign,
-  Activity,
-  ChevronRight,
-  X,
-  CheckCircle,
-  Trash2,
-  BarChart3,
-  ArrowUpRight,
-  ArrowDownRight,
-  Coins,
-  RefreshCw,
+  Wallet, Package, TrendingUp, Plus, DollarSign,
+  Activity, ChevronRight, X, CheckCircle, Trash2,
+  BarChart3, ArrowUpRight, ArrowDownRight, Coins, RefreshCw, LogOut,
 } from "lucide-react";
-import { WalletEntry, RobuxAccount, AppState } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
-const STORAGE_KEY = "robux_dashboard_v1";
-
-const DEFAULT_STATE: AppState = {
-  walletEntries: [],
-  accounts: [],
-  buyRate: 36.5,
-  sellRate: 5.0,
-};
-
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// ── Types ──────────────────────────────────────────────────────────────────
+interface WalletEntry {
+  id: string;
+  created_at: string;
+  thb_amount: number;
+  usdt_received: number;
+  binance_rate: number;
+  note?: string;
 }
 
+interface InventoryItem {
+  id: string;
+  created_at: string;
+  robux_amount: number;
+  usdt_cost: number;
+  vnd_rate: number;
+  binance_rate: number;
+  unit_cost_thb: number;
+  status: "available" | "sold";
+}
+
+interface SaleItem {
+  id: string;
+  created_at: string;
+  inventory_id: string;
+  selling_price_thb: number;
+  total_cost_thb: number;
+  net_profit: number;
+  customer_name?: string;
+  inventory: InventoryItem;
+}
+
+interface Settings {
+  buy_rate: number;
+  sell_rate: number;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
 function fmt(n: number, decimals = 2) {
-  return n.toLocaleString("en-US", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+  return n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
+function fmtTHB(n: number) { return "฿" + fmt(n, 2); }
+function fmtRobux(n: number) { return n.toLocaleString("en-US") + " R$"; }
 
-function fmtTHB(n: number) {
-  return "฿" + fmt(n, 2);
-}
-
-function fmtRobux(n: number) {
-  return n.toLocaleString("en-US") + " R$";
-}
-
-// ── Modal ─────────────────────────────────────────────────────────────────────
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
+// ── Modal ──────────────────────────────────────────────────────────────────
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-          <h3 style={{ fontFamily: "'Syne', sans-serif", fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>
-            {title}
-          </h3>
-          <button
-            onClick={onClose}
-            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px", cursor: "pointer", display: "flex", color: "var(--text-secondary)" }}
-          >
+          <h3 style={{ fontFamily: "'Syne', sans-serif", fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>{title}</h3>
+          <button onClick={onClose} style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: 6, cursor: "pointer", display: "flex", color: "var(--text-secondary)" }}>
             <X size={16} />
           </button>
         </div>
@@ -78,14 +70,7 @@ function Modal({
   );
 }
 
-// ── Form Field ────────────────────────────────────────────────────────────────
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <label className="label">{label}</label>
@@ -94,245 +79,188 @@ function Field({
   );
 }
 
-// ── Stat Card ─────────────────────────────────────────────────────────────────
-function StatCard({
-  icon,
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: "gold" | "green" | "red" | "blue";
-}) {
-  const accentMap = {
-    gold: "var(--accent-gold)",
-    green: "var(--accent-green)",
-    red: "var(--accent-red)",
-    blue: "var(--accent-blue)",
-  };
+function StatCard({ icon, label, value, sub, accent }: { icon: React.ReactNode; label: string; value: string; sub?: string; accent?: "gold" | "green" | "red" | "blue" }) {
+  const accentMap = { gold: "var(--accent-gold)", green: "var(--accent-green)", red: "var(--accent-red)", blue: "var(--accent-blue)" };
   const color = accent ? accentMap[accent] : "var(--accent-gold)";
-
   return (
-    <div
-      className="card animate-fade-up"
-      style={{ padding: "24px", position: "relative", overflow: "hidden" }}
-    >
-      {/* Background glow orb */}
-      <div
-        style={{
-          position: "absolute",
-          top: -30,
-          right: -30,
-          width: 100,
-          height: 100,
-          borderRadius: "50%",
-          background: color,
-          opacity: 0.04,
-          filter: "blur(30px)",
-        }}
-      />
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-        <div
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 10,
-            background: `${color}18`,
-            border: `1px solid ${color}30`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color,
-          }}
-        >
-          {icon}
-        </div>
-      </div>
+    <div className="card animate-fade-up" style={{ padding: 24, position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: -30, right: -30, width: 100, height: 100, borderRadius: "50%", background: color, opacity: 0.04, filter: "blur(30px)" }} />
+      <div style={{ width: 40, height: 40, borderRadius: 10, background: `${color}18`, border: `1px solid ${color}30`, display: "flex", alignItems: "center", justifyContent: "center", color, marginBottom: 16 }}>{icon}</div>
       <p className="label" style={{ marginBottom: 4 }}>{label}</p>
-      <p
-        className="num"
-        style={{ fontSize: 26, fontWeight: 700, color, letterSpacing: "-0.02em", lineHeight: 1 }}
-      >
-        {value}
-      </p>
-      {sub && (
-        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, fontFamily: "'Space Mono', monospace" }}>
-          {sub}
-        </p>
-      )}
+      <p className="num" style={{ fontSize: 26, fontWeight: 700, color, letterSpacing: "-0.02em", lineHeight: 1 }}>{value}</p>
+      {sub && <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, fontFamily: "'Space Mono', monospace" }}>{sub}</p>}
     </div>
   );
 }
 
-// ── Rate Badge ────────────────────────────────────────────────────────────────
-function RateBadge({
-  label,
-  value,
-  unit,
-  color,
-}: {
-  label: string;
-  value: string;
-  unit: string;
-  color: string;
-}) {
+function RateBadge({ label, value, unit, color }: { label: string; value: string; unit: string; color: string }) {
   return (
-    <div
-      style={{
-        background: "var(--bg-elevated)",
-        border: `1px solid ${color}30`,
-        borderRadius: 12,
-        padding: "14px 18px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-      }}
-    >
-      <span style={{ fontSize: 11, fontFamily: "'Syne',sans-serif", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-        {label}
-      </span>
-      <span className="num" style={{ fontSize: 22, fontWeight: 700, color }}>
-        {value}
-      </span>
-      <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace" }}>
-        {unit}
-      </span>
+    <div style={{ background: "var(--bg-elevated)", border: `1px solid ${color}30`, borderRadius: 12, padding: "14px 18px", display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontSize: 11, fontFamily: "'Syne',sans-serif", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: "var(--text-muted)" }}>{label}</span>
+      <span className="num" style={{ fontSize: 22, fontWeight: 700, color }}>{value}</span>
+      <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace" }}>{unit}</span>
     </div>
   );
 }
 
-// ── Main Dashboard ─────────────────────────────────────────────────────────────
+// ── Loading Spinner ────────────────────────────────────────────────────────
+function LoadingScreen() {
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg-base)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ width: 40, height: 40, border: "3px solid var(--border)", borderTop: "3px solid var(--accent-gold)", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
+        <p style={{ color: "var(--text-muted)", fontSize: 13, fontFamily: "'Space Mono',monospace" }}>กำลังโหลด...</p>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+// ── Main Dashboard ─────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [state, setState] = useState<AppState>(DEFAULT_STATE);
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [wallets, setWallets] = useState<WalletEntry[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [sales, setSales] = useState<SaleItem[]>([]);
+  const [settings, setSettings] = useState<Settings>({ buy_rate: 36.5, sell_rate: 5.0 });
   const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "inventory" | "sales">("overview");
+
+  // Modal states
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
-  const [showSellModal, setShowSellModal] = useState<RobuxAccount | null>(null);
+  const [showSellModal, setShowSellModal] = useState<InventoryItem | null>(null);
   const [showRateModal, setShowRateModal] = useState(false);
 
-  // Wallet form
+  // Form states
   const [wForm, setWForm] = useState({ thbAmount: "", usdtReceived: "", note: "" });
-  // Inventory form
   const [iForm, setIForm] = useState({ robuxAmount: "", usdtCost: "", vndRate: "" });
-  // Sell form
   const [sellPrice, setSellPrice] = useState("");
-  // Rate form
+  const [customerName, setCustomerName] = useState("");
   const [rateForm, setRateForm] = useState({ buyRate: "", sellRate: "" });
+  const [submitting, setSubmitting] = useState(false);
 
-  // Load from localStorage
-  useEffect(() => {
+  // ── Fetch all data ─────────────────────────────────────────────────────
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setState(JSON.parse(saved));
-    } catch {}
+      const [w, inv, s, cfg] = await Promise.all([
+        supabase.from("wallets").select("*").order("created_at", { ascending: false }),
+        supabase.from("inventory").select("*").order("created_at", { ascending: false }),
+        supabase.from("sales").select("*, inventory(*)").order("created_at", { ascending: false }),
+        supabase.from("app_settings").select("*"),
+      ]);
+
+      if (w.data) setWallets(w.data);
+      if (inv.data) setInventory(inv.data);
+      if (s.data) setSales(s.data as SaleItem[]);
+      if (cfg.data) {
+        const s: Settings = { buy_rate: 36.5, sell_rate: 5.0 };
+        cfg.data.forEach((r: { key: string; value: number }) => {
+          if (r.key === "buy_rate") s.buy_rate = r.value;
+          if (r.key === "sell_rate") s.sell_rate = r.value;
+        });
+        setSettings(s);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const save = useCallback((next: AppState) => {
-    setState(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  }, []);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // ── Derived stats ──────────────────────────────────────────────────────────
+  // ── Derived ────────────────────────────────────────────────────────────
   const avgBinanceRate = (() => {
-    if (state.walletEntries.length === 0) return state.buyRate;
-    const total = state.walletEntries.reduce((s, e) => s + e.thbAmount, 0);
-    const weighted = state.walletEntries.reduce(
-      (s, e) => s + e.binanceRate * e.thbAmount,
-      0
-    );
-    return total > 0 ? weighted / total : state.buyRate;
+    if (wallets.length === 0) return settings.buy_rate;
+    const totalTHB = wallets.reduce((s, e) => s + e.thb_amount, 0);
+    const weighted = wallets.reduce((s, e) => s + e.binance_rate * e.thb_amount, 0);
+    return totalTHB > 0 ? weighted / totalTHB : settings.buy_rate;
   })();
 
-  const availableAccounts = state.accounts.filter((a) => a.status === "available");
-  const soldAccounts = state.accounts.filter((a) => a.status === "sold");
+  const availableAccounts = inventory.filter((a) => a.status === "available");
+  const soldAccounts = inventory.filter((a) => a.status === "sold");
+  const totalInvestmentTHB = inventory.reduce((s, a) => s + a.usdt_cost * a.binance_rate, 0);
+  const totalRobuxStock = availableAccounts.reduce((s, a) => s + a.robux_amount, 0);
+  const totalNetProfit = sales.reduce((s, a) => s + (a.net_profit ?? 0), 0);
 
-  const totalInvestmentTHB = state.accounts.reduce(
-    (s, a) => s + a.usdtCost * a.binanceRate,
-    0
-  );
-  const totalRobuxStock = availableAccounts.reduce((s, a) => s + a.robuxAmount, 0);
-  const totalNetProfit = soldAccounts.reduce((s, a) => s + (a.netProfit ?? 0), 0);
-
-  // ── Wallet submit ──────────────────────────────────────────────────────────
-  function handleWalletSubmit() {
+  // ── Handlers ───────────────────────────────────────────────────────────
+  async function handleWalletSubmit() {
     const thb = parseFloat(wForm.thbAmount);
     const usdt = parseFloat(wForm.usdtReceived);
     if (!thb || !usdt || thb <= 0 || usdt <= 0) return;
-    const entry: WalletEntry = {
-      id: generateId(),
-      date: new Date().toISOString(),
-      thbAmount: thb,
-      usdtReceived: usdt,
-      binanceRate: thb / usdt,
-      note: wForm.note,
-    };
-    save({ ...state, walletEntries: [entry, ...state.walletEntries] });
+    setSubmitting(true);
+    await supabase.from("wallets").insert({ thb_amount: thb, usdt_received: usdt, note: wForm.note || null });
     setWForm({ thbAmount: "", usdtReceived: "", note: "" });
     setShowWalletModal(false);
+    setSubmitting(false);
+    fetchAll();
   }
 
-  // ── Inventory submit ───────────────────────────────────────────────────────
-  function handleInventorySubmit() {
+  async function handleInventorySubmit() {
     const robux = parseFloat(iForm.robuxAmount);
     const usdt = parseFloat(iForm.usdtCost);
-    const vnd = parseFloat(iForm.vndRate);
+    const vnd = parseFloat(iForm.vndRate) || 0;
     if (!robux || !usdt || robux <= 0 || usdt <= 0) return;
-    const binRate = avgBinanceRate;
-    const unitCost = (usdt * binRate) / robux;
-    const acc: RobuxAccount = {
-      id: generateId(),
-      createdAt: new Date().toISOString(),
-      robuxAmount: robux,
-      usdtCost: usdt,
-      vndRate: vnd || 0,
-      binanceRate: binRate,
-      unitCostTHB: unitCost,
-      status: "available",
-    };
-    save({ ...state, accounts: [acc, ...state.accounts] });
+    const unitCost = (usdt * avgBinanceRate) / robux;
+    setSubmitting(true);
+    await supabase.from("inventory").insert({
+      robux_amount: robux,
+      usdt_cost: usdt,
+      vnd_rate: vnd,
+      binance_rate: avgBinanceRate,
+      unit_cost_thb: unitCost,
+    });
     setIForm({ robuxAmount: "", usdtCost: "", vndRate: "" });
     setShowInventoryModal(false);
+    setSubmitting(false);
+    fetchAll();
   }
 
-  // ── Sell submit ────────────────────────────────────────────────────────────
-  function handleSellSubmit() {
+  async function handleSellSubmit() {
     if (!showSellModal) return;
     const price = parseFloat(sellPrice);
     if (!price || price <= 0) return;
-    const netProfit = price - showSellModal.unitCostTHB * showSellModal.robuxAmount;
-    const updated = state.accounts.map((a) =>
-      a.id === showSellModal.id
-        ? { ...a, status: "sold" as const, soldAt: new Date().toISOString(), sellingPriceTHB: price, netProfit }
-        : a
-    );
-    save({ ...state, accounts: updated });
+    const totalCost = showSellModal.unit_cost_thb * showSellModal.robux_amount;
+    setSubmitting(true);
+    await supabase.from("sales").insert({
+      inventory_id: showSellModal.id,
+      selling_price_thb: price,
+      total_cost_thb: totalCost,
+      customer_name: customerName || null,
+    });
+    await supabase.from("inventory").update({ status: "sold" }).eq("id", showSellModal.id);
     setSellPrice("");
+    setCustomerName("");
     setShowSellModal(null);
+    setSubmitting(false);
+    fetchAll();
   }
 
-  // ── Delete ─────────────────────────────────────────────────────────────────
-  function deleteAccount(id: string) {
-    save({ ...state, accounts: state.accounts.filter((a) => a.id !== id) });
-  }
-  function deleteWallet(id: string) {
-    save({ ...state, walletEntries: state.walletEntries.filter((e) => e.id !== id) });
+  async function handleDeleteWallet(id: string) {
+    await supabase.from("wallets").delete().eq("id", id);
+    fetchAll();
   }
 
-  // ── Update rates ───────────────────────────────────────────────────────────
-  function handleRateSubmit() {
+  async function handleDeleteInventory(id: string) {
+    await supabase.from("inventory").delete().eq("id", id);
+    fetchAll();
+  }
+
+  async function handleRateSubmit() {
     const buy = parseFloat(rateForm.buyRate);
     const sell = parseFloat(rateForm.sellRate);
-    save({
-      ...state,
-      buyRate: buy > 0 ? buy : state.buyRate,
-      sellRate: sell > 0 ? sell : state.sellRate,
-    });
+    if (buy > 0) await supabase.from("app_settings").update({ value: buy, updated_at: new Date().toISOString() }).eq("key", "buy_rate");
+    if (sell > 0) await supabase.from("app_settings").update({ value: sell, updated_at: new Date().toISOString() }).eq("key", "sell_rate");
     setShowRateModal(false);
+    fetchAll();
   }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
+
+  if (loading) return <LoadingScreen />;
 
   const tabs = [
     { id: "overview", label: "Overview", icon: <BarChart3 size={14} /> },
@@ -343,150 +271,75 @@ export default function Dashboard() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-base)" }}>
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <header
-        style={{
-          borderBottom: "1px solid var(--border)",
-          background: "var(--bg-card)",
-          position: "sticky",
-          top: 0,
-          zIndex: 40,
-        }}
-      >
+      {/* Header */}
+      <header style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-card)", position: "sticky", top: 0, zIndex: 40 }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                background: "linear-gradient(135deg, var(--accent-gold), #e07b10)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 16,
-              }}
-            >
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, var(--accent-gold), #e07b10)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Coins size={16} color="#0a0b0e" />
             </div>
-            <div>
-              <span
-                style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: "var(--text-primary)", letterSpacing: "-0.02em" }}
-              >
-                ROBUX
-              </span>
-              <span
-                style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: "var(--accent-gold)", letterSpacing: "-0.02em" }}
-              >
-                DESK
-              </span>
-            </div>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: "var(--text-primary)" }}>ROBUX</span>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: "var(--accent-gold)" }}>DESK</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button className="btn-ghost" onClick={() => { setRateForm({ buyRate: String(state.buyRate), sellRate: String(state.sellRate) }); setShowRateModal(true); }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn-ghost" onClick={() => { setRateForm({ buyRate: String(settings.buy_rate), sellRate: String(settings.sell_rate) }); setShowRateModal(true); }}>
               <RefreshCw size={13} /> Rates
+            </button>
+            <button className="btn-ghost" onClick={handleLogout} style={{ color: "var(--accent-red)", borderColor: "rgba(239,68,68,0.2)" }}>
+              <LogOut size={13} /> ออกจากระบบ
             </button>
           </div>
         </div>
       </header>
 
-      {/* ── Main ────────────────────────────────────────────────────────────── */}
+      {/* Main */}
       <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
-        {/* Rate badges */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
-          <RateBadge label="Buy Rate" value={fmt(state.buyRate, 2)} unit="THB / USDT" color="var(--accent-gold)" />
-          <RateBadge label="Sell Rate" value={fmt(state.sellRate, 1)} unit="R$ per THB" color="var(--accent-cyan)" />
-          <RateBadge label="Avg Binance Rate" value={fmt(avgBinanceRate, 2)} unit="THB / USDT (weighted)" color="var(--accent-blue)" />
+        {/* Rate Badges */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" as const }}>
+          <RateBadge label="Buy Rate" value={fmt(settings.buy_rate, 2)} unit="THB / USDT" color="var(--accent-gold)" />
+          <RateBadge label="Sell Rate" value={fmt(settings.sell_rate, 1)} unit="R$ per THB" color="var(--accent-cyan)" />
+          <RateBadge label="Avg Binance Rate" value={fmt(avgBinanceRate, 4)} unit="THB / USDT (weighted)" color="var(--accent-blue)" />
         </div>
 
-        {/* Overview cards */}
+        {/* Stat Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 32 }}>
-          <StatCard
-            icon={<DollarSign size={18} />}
-            label="Total Investment"
-            value={fmtTHB(totalInvestmentTHB)}
-            sub={`${state.accounts.length} accounts total`}
-            accent="gold"
-          />
-          <StatCard
-            icon={<Package size={18} />}
-            label="Robux Stock"
-            value={fmtRobux(totalRobuxStock)}
-            sub={`${availableAccounts.length} available accounts`}
-            accent="blue"
-          />
-          <StatCard
-            icon={<TrendingUp size={18} />}
-            label="Total Net Profit"
-            value={fmtTHB(totalNetProfit)}
-            sub={`${soldAccounts.length} accounts sold`}
-            accent={totalNetProfit >= 0 ? "green" : "red"}
-          />
+          <StatCard icon={<DollarSign size={18} />} label="ลงทุนทั้งหมด" value={fmtTHB(totalInvestmentTHB)} sub={`${inventory.length} บัญชีทั้งหมด`} accent="gold" />
+          <StatCard icon={<Package size={18} />} label="Robux คงเหลือ" value={fmtRobux(totalRobuxStock)} sub={`${availableAccounts.length} บัญชีพร้อมขาย`} accent="blue" />
+          <StatCard icon={<TrendingUp size={18} />} label="กำไรสุทธิรวม" value={fmtTHB(totalNetProfit)} sub={`${soldAccounts.length} บัญชีที่ขายแล้ว`} accent={totalNetProfit >= 0 ? "green" : "red"} />
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 24, padding: "4px", background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border)", width: "fit-content" }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 24, padding: 4, background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border)", width: "fit-content" }}>
           {tabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              style={{
-                fontFamily: "'Syne',sans-serif",
-                fontWeight: 600,
-                fontSize: 12,
-                letterSpacing: "0.04em",
-                padding: "8px 16px",
-                borderRadius: 8,
-                border: "none",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                transition: "all 0.15s",
-                background: activeTab === t.id ? "var(--bg-elevated)" : "transparent",
-                color: activeTab === t.id ? "var(--accent-gold)" : "var(--text-muted)",
-                boxShadow: activeTab === t.id ? "0 1px 3px rgba(0,0,0,0.3)" : "none",
-              }}
-            >
-              {t.icon}
-              {t.label}
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{ fontFamily: "'Syne',sans-serif", fontWeight: 600, fontSize: 12, letterSpacing: "0.04em", padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.15s", background: activeTab === t.id ? "var(--bg-elevated)" : "transparent", color: activeTab === t.id ? "var(--accent-gold)" : "var(--text-muted)" }}>
+              {t.icon}{t.label}
             </button>
           ))}
         </div>
 
-        {/* ── Tab Panels ──────────────────────────────────────────────────── */}
-
-        {/* OVERVIEW TAB */}
+        {/* ── OVERVIEW ── */}
         {activeTab === "overview" && (
           <div className="animate-fade-up" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            {/* Recent Sales */}
             <div className="card" style={{ padding: 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <h3 className="section-title">Recent Sales</h3>
-                <button className="btn-ghost" onClick={() => setActiveTab("sales")} style={{ fontSize: 11 }}>
-                  View all <ChevronRight size={12} />
-                </button>
+                <h3 className="section-title">ประวัติการขาย</h3>
+                <button className="btn-ghost" onClick={() => setActiveTab("sales")} style={{ fontSize: 11 }}>ดูทั้งหมด <ChevronRight size={12} /></button>
               </div>
-              {soldAccounts.length === 0 ? (
-                <p style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: "24px 0" }}>No sales yet</p>
+              {sales.length === 0 ? (
+                <p style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: "24px 0" }}>ยังไม่มีการขาย</p>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {soldAccounts.slice(0, 5).map((a) => (
-                    <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: "var(--bg-elevated)", borderRadius: 10, border: "1px solid var(--border)" }}>
+                  {sales.slice(0, 5).map((s) => (
+                    <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: "var(--bg-elevated)", borderRadius: 10, border: "1px solid var(--border)" }}>
                       <div>
-                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmtRobux(a.robuxAmount)}</p>
-                        <p style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>
-                          {new Date(a.soldAt!).toLocaleDateString()}
-                        </p>
+                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmtRobux(s.inventory?.robux_amount ?? 0)}</p>
+                        <p style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>{new Date(s.created_at).toLocaleDateString("th-TH")}</p>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <p className="num" style={{ fontSize: 13, color: "var(--accent-gold)" }}>{fmtTHB(a.sellingPriceTHB!)}</p>
-                        <p
-                          className="num"
-                          style={{ fontSize: 11, color: (a.netProfit ?? 0) >= 0 ? "var(--accent-green)" : "var(--accent-red)", marginTop: 2 }}
-                        >
-                          {(a.netProfit ?? 0) >= 0 ? <><ArrowUpRight size={10} style={{ display: "inline" }} /></> : <><ArrowDownRight size={10} style={{ display: "inline" }} /></>}
-                          {fmtTHB(a.netProfit ?? 0)}
+                        <p className="num" style={{ fontSize: 13, color: "var(--accent-gold)" }}>{fmtTHB(s.selling_price_thb)}</p>
+                        <p className="num" style={{ fontSize: 11, color: s.net_profit >= 0 ? "var(--accent-green)" : "var(--accent-red)", marginTop: 2 }}>
+                          {s.net_profit >= 0 ? <ArrowUpRight size={10} style={{ display: "inline" }} /> : <ArrowDownRight size={10} style={{ display: "inline" }} />}
+                          {fmtTHB(s.net_profit)}
                         </p>
                       </div>
                     </div>
@@ -495,31 +348,24 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Available Accounts */}
             <div className="card" style={{ padding: 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <h3 className="section-title">Stock Overview</h3>
-                <button className="btn-ghost" onClick={() => setActiveTab("inventory")} style={{ fontSize: 11 }}>
-                  Manage <ChevronRight size={12} />
-                </button>
+                <h3 className="section-title">สต็อกปัจจุบัน</h3>
+                <button className="btn-ghost" onClick={() => setActiveTab("inventory")} style={{ fontSize: 11 }}>จัดการ <ChevronRight size={12} /></button>
               </div>
               {availableAccounts.length === 0 ? (
-                <p style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: "24px 0" }}>No stock available</p>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, textAlign: "center", padding: "24px 0" }}>ไม่มีสต็อก</p>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {availableAccounts.slice(0, 5).map((a) => (
                     <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: "var(--bg-elevated)", borderRadius: 10, border: "1px solid var(--border)" }}>
                       <div>
-                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmtRobux(a.robuxAmount)}</p>
-                        <p style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>
-                          Cost: {fmtTHB(a.usdtCost * a.binanceRate)}
-                        </p>
+                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmtRobux(a.robux_amount)}</p>
+                        <p style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>ต้นทุน: {fmtTHB(a.usdt_cost * a.binance_rate)}</p>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <span className="badge-available">Available</span>
-                        <p className="num" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                          {fmt(a.unitCostTHB, 4)} ฿/R$
-                        </p>
+                        <span className="badge-available">พร้อมขาย</span>
+                        <p className="num" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{fmt(a.unit_cost_thb, 5)} ฿/R$</p>
                       </div>
                     </div>
                   ))}
@@ -529,55 +375,30 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* WALLET TAB */}
+        {/* ── WALLET ── */}
         {activeTab === "wallet" && (
           <div className="animate-fade-up">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h2 className="section-title">Wallet — THB → USDT Transfers</h2>
-              <button className="btn-primary" onClick={() => setShowWalletModal(true)}>
-                <Plus size={14} /> Log Transfer
-              </button>
+              <h2 className="section-title">Wallet — โอน THB → USDT</h2>
+              <button className="btn-primary" onClick={() => setShowWalletModal(true)}><Plus size={14} /> บันทึกการโอน</button>
             </div>
-            {state.walletEntries.length === 0 ? (
+            {wallets.length === 0 ? (
               <div className="card" style={{ padding: 48, textAlign: "center" }}>
                 <Wallet size={32} style={{ color: "var(--text-muted)", margin: "0 auto 12px" }} />
-                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>No transfers logged yet</p>
+                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>ยังไม่มีรายการโอน</p>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {state.walletEntries.map((e) => (
-                  <div
-                    key={e.id}
-                    className="card"
-                    style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}
-                  >
-                    <div style={{ display: "flex", gap: 20, alignItems: "center", flex: 1, flexWrap: "wrap" }}>
-                      <div>
-                        <p className="label" style={{ marginBottom: 2 }}>Date</p>
-                        <p className="num" style={{ fontSize: 12, color: "var(--text-secondary)" }}>{new Date(e.date).toLocaleDateString()}</p>
-                      </div>
-                      <div>
-                        <p className="label" style={{ marginBottom: 2 }}>THB Sent</p>
-                        <p className="num" style={{ fontSize: 15, color: "var(--accent-gold)" }}>{fmtTHB(e.thbAmount)}</p>
-                      </div>
-                      <div>
-                        <p className="label" style={{ marginBottom: 2 }}>USDT Received</p>
-                        <p className="num" style={{ fontSize: 15, color: "var(--accent-cyan)" }}>${fmt(e.usdtReceived)}</p>
-                      </div>
-                      <div>
-                        <p className="label" style={{ marginBottom: 2 }}>Rate</p>
-                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmt(e.binanceRate, 3)} THB/USDT</p>
-                      </div>
-                      {e.note && (
-                        <div>
-                          <p className="label" style={{ marginBottom: 2 }}>Note</p>
-                          <p style={{ fontSize: 12, color: "var(--text-muted)" }}>{e.note}</p>
-                        </div>
-                      )}
+                {wallets.map((e) => (
+                  <div key={e.id} className="card" style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                    <div style={{ display: "flex", gap: 20, alignItems: "center", flex: 1, flexWrap: "wrap" as const }}>
+                      <div><p className="label" style={{ marginBottom: 2 }}>วันที่</p><p className="num" style={{ fontSize: 12, color: "var(--text-secondary)" }}>{new Date(e.created_at).toLocaleDateString("th-TH")}</p></div>
+                      <div><p className="label" style={{ marginBottom: 2 }}>THB ที่โอน</p><p className="num" style={{ fontSize: 15, color: "var(--accent-gold)" }}>{fmtTHB(e.thb_amount)}</p></div>
+                      <div><p className="label" style={{ marginBottom: 2 }}>USDT ที่ได้</p><p className="num" style={{ fontSize: 15, color: "var(--accent-cyan)" }}>${fmt(e.usdt_received)}</p></div>
+                      <div><p className="label" style={{ marginBottom: 2 }}>เรต</p><p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmt(e.binance_rate, 4)} THB/USDT</p></div>
+                      {e.note && <div><p className="label" style={{ marginBottom: 2 }}>หมายเหตุ</p><p style={{ fontSize: 12, color: "var(--text-muted)" }}>{e.note}</p></div>}
                     </div>
-                    <button className="btn-danger" onClick={() => deleteWallet(e.id)}>
-                      <Trash2 size={12} />
-                    </button>
+                    <button className="btn-danger" onClick={() => handleDeleteWallet(e.id)}><Trash2 size={12} /></button>
                   </div>
                 ))}
               </div>
@@ -585,67 +406,42 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* INVENTORY TAB */}
+        {/* ── INVENTORY ── */}
         {activeTab === "inventory" && (
           <div className="animate-fade-up">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h2 className="section-title">Inventory — Robux Accounts</h2>
-              <button className="btn-primary" onClick={() => setShowInventoryModal(true)}>
-                <Plus size={14} /> Add Account
-              </button>
+              <h2 className="section-title">คลัง — บัญชี Robux</h2>
+              <button className="btn-primary" onClick={() => setShowInventoryModal(true)}><Plus size={14} /> เพิ่มบัญชี</button>
             </div>
             {availableAccounts.length === 0 ? (
               <div className="card" style={{ padding: 48, textAlign: "center" }}>
                 <Package size={32} style={{ color: "var(--text-muted)", margin: "0 auto 12px" }} />
-                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>No available accounts</p>
+                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>ไม่มีบัญชีที่พร้อมขาย</p>
               </div>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["Date", "Robux", "USDT Cost", "Binance Rate", "Unit Cost (฿/R$)", "Total Cost (THB)", "Status", "Actions"].map((h) => (
-                        <th key={h} style={{ fontFamily: "'Syne',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", padding: "10px 14px", textAlign: "left" }}>
-                          {h}
-                        </th>
+                      {["วันที่", "Robux", "ต้นทุน USDT", "เรต Binance", "ต้นทุน/R$", "ต้นทุนรวม (THB)", "สถานะ", "จัดการ"].map((h) => (
+                        <th key={h} style={{ fontFamily: "'Syne',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "var(--text-muted)", padding: "10px 14px", textAlign: "left" as const }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {availableAccounts.map((a, i) => (
-                      <tr
-                        key={a.id}
-                        style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}
-                      >
-                        <td style={{ padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace" }}>
-                          {new Date(a.createdAt).toLocaleDateString()}
-                        </td>
-                        <td style={{ padding: "12px 14px" }}>
-                          <span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(a.robuxAmount)}</span>
-                        </td>
-                        <td style={{ padding: "12px 14px" }}>
-                          <span className="num" style={{ fontSize: 13, color: "var(--accent-cyan)" }}>${fmt(a.usdtCost)}</span>
-                        </td>
-                        <td style={{ padding: "12px 14px" }}>
-                          <span className="num" style={{ fontSize: 13, color: "var(--text-secondary)" }}>{fmt(a.binanceRate, 3)}</span>
-                        </td>
-                        <td style={{ padding: "12px 14px" }}>
-                          <span className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmt(a.unitCostTHB, 5)}</span>
-                        </td>
-                        <td style={{ padding: "12px 14px" }}>
-                          <span className="num" style={{ fontSize: 13, color: "var(--accent-gold)" }}>{fmtTHB(a.usdtCost * a.binanceRate)}</span>
-                        </td>
-                        <td style={{ padding: "12px 14px" }}>
-                          <span className="badge-available">Available</span>
-                        </td>
+                      <tr key={a.id} style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
+                        <td style={{ padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace" }}>{new Date(a.created_at).toLocaleDateString("th-TH")}</td>
+                        <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(a.robux_amount)}</span></td>
+                        <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--accent-cyan)" }}>${fmt(a.usdt_cost)}</span></td>
+                        <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--text-secondary)" }}>{fmt(a.binance_rate, 4)}</span></td>
+                        <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmt(a.unit_cost_thb, 5)}</span></td>
+                        <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--accent-gold)" }}>{fmtTHB(a.usdt_cost * a.binance_rate)}</span></td>
+                        <td style={{ padding: "12px 14px" }}><span className="badge-available">พร้อมขาย</span></td>
                         <td style={{ padding: "12px 14px" }}>
                           <div style={{ display: "flex", gap: 8 }}>
-                            <button className="btn-success" onClick={() => { setShowSellModal(a); setSellPrice(""); }}>
-                              <CheckCircle size={11} /> Sell
-                            </button>
-                            <button className="btn-danger" onClick={() => deleteAccount(a.id)}>
-                              <Trash2 size={11} />
-                            </button>
+                            <button className="btn-success" onClick={() => { setShowSellModal(a); setSellPrice(""); setCustomerName(""); }}><CheckCircle size={11} /> ขาย</button>
+                            <button className="btn-danger" onClick={() => handleDeleteInventory(a.id)}><Trash2 size={11} /></button>
                           </div>
                         </td>
                       </tr>
@@ -657,77 +453,49 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* SALES TAB */}
+        {/* ── SALES ── */}
         {activeTab === "sales" && (
           <div className="animate-fade-up">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h2 className="section-title">Sales History</h2>
+              <h2 className="section-title">ประวัติการขาย</h2>
               <div className="card-elevated" style={{ padding: "10px 16px", display: "flex", gap: 20 }}>
                 <div>
-                  <p className="label" style={{ marginBottom: 2 }}>Total Revenue</p>
-                  <p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>
-                    {fmtTHB(soldAccounts.reduce((s, a) => s + (a.sellingPriceTHB ?? 0), 0))}
-                  </p>
+                  <p className="label" style={{ marginBottom: 2 }}>รายได้รวม</p>
+                  <p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>{fmtTHB(sales.reduce((s, a) => s + a.selling_price_thb, 0))}</p>
                 </div>
                 <div>
-                  <p className="label" style={{ marginBottom: 2 }}>Net Profit</p>
-                  <p className="num" style={{ color: totalNetProfit >= 0 ? "var(--accent-green)" : "var(--accent-red)", fontSize: 15 }}>
-                    {fmtTHB(totalNetProfit)}
-                  </p>
+                  <p className="label" style={{ marginBottom: 2 }}>กำไรสุทธิ</p>
+                  <p className="num" style={{ color: totalNetProfit >= 0 ? "var(--accent-green)" : "var(--accent-red)", fontSize: 15 }}>{fmtTHB(totalNetProfit)}</p>
                 </div>
               </div>
             </div>
-            {soldAccounts.length === 0 ? (
+            {sales.length === 0 ? (
               <div className="card" style={{ padding: 48, textAlign: "center" }}>
                 <Activity size={32} style={{ color: "var(--text-muted)", margin: "0 auto 12px" }} />
-                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>No sales recorded yet</p>
+                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>ยังไม่มีประวัติการขาย</p>
               </div>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["Sold Date", "Robux", "Cost (THB)", "Sell Price (THB)", "Net Profit", "Margin"].map((h) => (
-                        <th key={h} style={{ fontFamily: "'Syne',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", padding: "10px 14px", textAlign: "left" }}>
-                          {h}
-                        </th>
+                      {["วันที่ขาย", "Robux", "ลูกค้า", "ต้นทุน (THB)", "ราคาขาย (THB)", "กำไรสุทธิ", "Margin"].map((h) => (
+                        <th key={h} style={{ fontFamily: "'Syne',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "var(--text-muted)", padding: "10px 14px", textAlign: "left" as const }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {soldAccounts.map((a, i) => {
-                      const cost = a.unitCostTHB * a.robuxAmount;
-                      const margin = a.sellingPriceTHB ? ((a.netProfit! / a.sellingPriceTHB!) * 100) : 0;
+                    {sales.map((s, i) => {
+                      const margin = s.selling_price_thb > 0 ? (s.net_profit / s.selling_price_thb) * 100 : 0;
                       return (
-                        <tr key={a.id} style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
-                          <td style={{ padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace" }}>
-                            {new Date(a.soldAt!).toLocaleDateString()}
-                          </td>
-                          <td style={{ padding: "12px 14px" }}>
-                            <span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(a.robuxAmount)}</span>
-                          </td>
-                          <td style={{ padding: "12px 14px" }}>
-                            <span className="num" style={{ fontSize: 13, color: "var(--text-secondary)" }}>{fmtTHB(cost)}</span>
-                          </td>
-                          <td style={{ padding: "12px 14px" }}>
-                            <span className="num" style={{ fontSize: 13, color: "var(--accent-gold)" }}>{fmtTHB(a.sellingPriceTHB!)}</span>
-                          </td>
-                          <td style={{ padding: "12px 14px" }}>
-                            <span
-                              className="num"
-                              style={{ fontSize: 13, color: (a.netProfit ?? 0) >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}
-                            >
-                              {(a.netProfit ?? 0) >= 0 ? "+" : ""}{fmtTHB(a.netProfit ?? 0)}
-                            </span>
-                          </td>
-                          <td style={{ padding: "12px 14px" }}>
-                            <span
-                              className="num"
-                              style={{ fontSize: 12, color: margin >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}
-                            >
-                              {margin >= 0 ? "+" : ""}{fmt(margin, 1)}%
-                            </span>
-                          </td>
+                        <tr key={s.id} style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
+                          <td style={{ padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace" }}>{new Date(s.created_at).toLocaleDateString("th-TH")}</td>
+                          <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(s.inventory?.robux_amount ?? 0)}</span></td>
+                          <td style={{ padding: "12px 14px" }}><span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{s.customer_name || "-"}</span></td>
+                          <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--text-secondary)" }}>{fmtTHB(s.total_cost_thb)}</span></td>
+                          <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--accent-gold)" }}>{fmtTHB(s.selling_price_thb)}</span></td>
+                          <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: s.net_profit >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>{s.net_profit >= 0 ? "+" : ""}{fmtTHB(s.net_profit)}</span></td>
+                          <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 12, color: margin >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>{margin >= 0 ? "+" : ""}{fmt(margin, 1)}%</span></td>
                         </tr>
                       );
                     })}
@@ -739,134 +507,85 @@ export default function Dashboard() {
         )}
       </main>
 
-      {/* ── Modals ──────────────────────────────────────────────────────────── */}
+      {/* ── Modals ── */}
 
-      {/* Wallet Modal */}
       {showWalletModal && (
-        <Modal title="Log THB → USDT Transfer" onClose={() => setShowWalletModal(false)}>
-          <Field label="THB Amount Sent">
-            <input className="input-base" type="number" placeholder="e.g. 3650" value={wForm.thbAmount} onChange={(e) => setWForm((f) => ({ ...f, thbAmount: e.target.value }))} />
+        <Modal title="บันทึกการโอน THB → USDT" onClose={() => setShowWalletModal(false)}>
+          <Field label="จำนวน THB ที่โอน">
+            <input className="input-base" type="number" placeholder="เช่น 3650" value={wForm.thbAmount} onChange={(e) => setWForm((f) => ({ ...f, thbAmount: e.target.value }))} />
           </Field>
-          <Field label="USDT Received">
-            <input className="input-base" type="number" placeholder="e.g. 100" value={wForm.usdtReceived} onChange={(e) => setWForm((f) => ({ ...f, usdtReceived: e.target.value }))} />
+          <Field label="USDT ที่ได้รับ">
+            <input className="input-base" type="number" placeholder="เช่น 100" value={wForm.usdtReceived} onChange={(e) => setWForm((f) => ({ ...f, usdtReceived: e.target.value }))} />
           </Field>
           {wForm.thbAmount && wForm.usdtReceived && parseFloat(wForm.usdtReceived) > 0 && (
             <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
-              <p className="label" style={{ marginBottom: 4 }}>Calculated Rate</p>
-              <p className="num" style={{ color: "var(--accent-gold)", fontSize: 18 }}>
-                {fmt(parseFloat(wForm.thbAmount) / parseFloat(wForm.usdtReceived), 4)} THB/USDT
-              </p>
+              <p className="label" style={{ marginBottom: 4 }}>เรตที่คำนวณได้</p>
+              <p className="num" style={{ color: "var(--accent-gold)", fontSize: 18 }}>{fmt(parseFloat(wForm.thbAmount) / parseFloat(wForm.usdtReceived), 4)} THB/USDT</p>
             </div>
           )}
-          <Field label="Note (optional)">
-            <input className="input-base" type="text" placeholder="e.g. Binance TH spot" value={wForm.note} onChange={(e) => setWForm((f) => ({ ...f, note: e.target.value }))} />
+          <Field label="หมายเหตุ (ไม่บังคับ)">
+            <input className="input-base" type="text" placeholder="เช่น Binance TH spot" value={wForm.note} onChange={(e) => setWForm((f) => ({ ...f, note: e.target.value }))} />
           </Field>
-          <button className="btn-primary" style={{ width: "100%" }} onClick={handleWalletSubmit} disabled={!wForm.thbAmount || !wForm.usdtReceived}>
-            <Plus size={14} /> Save Transfer
+          <button className="btn-primary" style={{ width: "100%" }} onClick={handleWalletSubmit} disabled={submitting || !wForm.thbAmount || !wForm.usdtReceived}>
+            {submitting ? "กำลังบันทึก..." : <><Plus size={14} /> บันทึก</>}
           </button>
         </Modal>
       )}
 
-      {/* Inventory Modal */}
       {showInventoryModal && (
-        <Modal title="Add Robux Account" onClose={() => setShowInventoryModal(false)}>
+        <Modal title="เพิ่มบัญชี Robux" onClose={() => setShowInventoryModal(false)}>
           <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
-            <p className="label" style={{ marginBottom: 2 }}>Current Avg Binance Rate</p>
+            <p className="label" style={{ marginBottom: 2 }}>เรต Binance เฉลี่ยปัจจุบัน</p>
             <p className="num" style={{ color: "var(--accent-cyan)", fontSize: 16 }}>{fmt(avgBinanceRate, 4)} THB/USDT</p>
           </div>
-          <Field label="Robux Amount">
-            <input className="input-base" type="number" placeholder="e.g. 10000" value={iForm.robuxAmount} onChange={(e) => setIForm((f) => ({ ...f, robuxAmount: e.target.value }))} />
-          </Field>
-          <Field label="USDT Cost">
-            <input className="input-base" type="number" placeholder="e.g. 1.75" value={iForm.usdtCost} onChange={(e) => setIForm((f) => ({ ...f, usdtCost: e.target.value }))} />
-          </Field>
-          <Field label="VND Rate (optional)">
-            <input className="input-base" type="number" placeholder="e.g. 25000" value={iForm.vndRate} onChange={(e) => setIForm((f) => ({ ...f, vndRate: e.target.value }))} />
-          </Field>
+          <Field label="จำนวน Robux"><input className="input-base" type="number" placeholder="เช่น 10000" value={iForm.robuxAmount} onChange={(e) => setIForm((f) => ({ ...f, robuxAmount: e.target.value }))} /></Field>
+          <Field label="ต้นทุน USDT"><input className="input-base" type="number" placeholder="เช่น 1.75" value={iForm.usdtCost} onChange={(e) => setIForm((f) => ({ ...f, usdtCost: e.target.value }))} /></Field>
+          <Field label="เรต VND (ไม่บังคับ)"><input className="input-base" type="number" placeholder="เช่น 25000" value={iForm.vndRate} onChange={(e) => setIForm((f) => ({ ...f, vndRate: e.target.value }))} /></Field>
           {iForm.robuxAmount && iForm.usdtCost && parseFloat(iForm.robuxAmount) > 0 && (
             <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div>
-                <p className="label" style={{ marginBottom: 2 }}>Unit Cost</p>
-                <p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>
-                  {fmt((parseFloat(iForm.usdtCost) * avgBinanceRate) / parseFloat(iForm.robuxAmount), 5)} ฿/R$
-                </p>
-              </div>
-              <div>
-                <p className="label" style={{ marginBottom: 2 }}>Total Cost</p>
-                <p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>
-                  {fmtTHB(parseFloat(iForm.usdtCost) * avgBinanceRate)}
-                </p>
-              </div>
+              <div><p className="label" style={{ marginBottom: 2 }}>ต้นทุน/R$</p><p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>{fmt((parseFloat(iForm.usdtCost) * avgBinanceRate) / parseFloat(iForm.robuxAmount), 5)} ฿/R$</p></div>
+              <div><p className="label" style={{ marginBottom: 2 }}>ต้นทุนรวม</p><p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>{fmtTHB(parseFloat(iForm.usdtCost) * avgBinanceRate)}</p></div>
             </div>
           )}
-          <button className="btn-primary" style={{ width: "100%" }} onClick={handleInventorySubmit} disabled={!iForm.robuxAmount || !iForm.usdtCost}>
-            <Plus size={14} /> Add Account
+          <button className="btn-primary" style={{ width: "100%" }} onClick={handleInventorySubmit} disabled={submitting || !iForm.robuxAmount || !iForm.usdtCost}>
+            {submitting ? "กำลังบันทึก..." : <><Plus size={14} /> เพิ่มบัญชี</>}
           </button>
         </Modal>
       )}
 
-      {/* Sell Modal */}
       {showSellModal && (
-        <Modal title="Mark Account as Sold" onClose={() => setShowSellModal(null)}>
-          <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px", marginBottom: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <p className="label" style={{ marginBottom: 2 }}>Robux</p>
-              <p className="num" style={{ color: "var(--accent-gold)", fontSize: 16 }}>{fmtRobux(showSellModal.robuxAmount)}</p>
-            </div>
-            <div>
-              <p className="label" style={{ marginBottom: 2 }}>Cost Basis</p>
-              <p className="num" style={{ color: "var(--text-primary)", fontSize: 16 }}>{fmtTHB(showSellModal.unitCostTHB * showSellModal.robuxAmount)}</p>
-            </div>
-            <div>
-              <p className="label" style={{ marginBottom: 2 }}>Unit Cost</p>
-              <p className="num" style={{ color: "var(--text-secondary)", fontSize: 13 }}>{fmt(showSellModal.unitCostTHB, 5)} ฿/R$</p>
-            </div>
+        <Modal title="บันทึกการขาย" onClose={() => setShowSellModal(null)}>
+          <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, marginBottom: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div><p className="label" style={{ marginBottom: 2 }}>Robux</p><p className="num" style={{ color: "var(--accent-gold)", fontSize: 16 }}>{fmtRobux(showSellModal.robux_amount)}</p></div>
+            <div><p className="label" style={{ marginBottom: 2 }}>ต้นทุน</p><p className="num" style={{ color: "var(--text-primary)", fontSize: 16 }}>{fmtTHB(showSellModal.unit_cost_thb * showSellModal.robux_amount)}</p></div>
           </div>
-          <Field label="Selling Price (THB)">
-            <input
-              className="input-base"
-              type="number"
-              placeholder="e.g. 300"
-              value={sellPrice}
-              onChange={(e) => setSellPrice(e.target.value)}
-              autoFocus
-            />
+          <Field label="ราคาขาย (THB)">
+            <input className="input-base" type="number" placeholder="เช่น 300" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} autoFocus />
+          </Field>
+          <Field label="ชื่อลูกค้า (ไม่บังคับ)">
+            <input className="input-base" type="text" placeholder="เช่น คุณสมชาย" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
           </Field>
           {sellPrice && parseFloat(sellPrice) > 0 && (
             <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
-              <p className="label" style={{ marginBottom: 4 }}>Estimated Profit</p>
-              <p
-                className="num"
-                style={{
-                  fontSize: 22,
-                  color:
-                    parseFloat(sellPrice) - showSellModal.unitCostTHB * showSellModal.robuxAmount >= 0
-                      ? "var(--accent-green)"
-                      : "var(--accent-red)",
-                }}
-              >
-                {parseFloat(sellPrice) - showSellModal.unitCostTHB * showSellModal.robuxAmount >= 0 ? "+" : ""}
-                {fmtTHB(parseFloat(sellPrice) - showSellModal.unitCostTHB * showSellModal.robuxAmount)}
+              <p className="label" style={{ marginBottom: 4 }}>กำไรประมาณ</p>
+              <p className="num" style={{ fontSize: 22, color: parseFloat(sellPrice) - showSellModal.unit_cost_thb * showSellModal.robux_amount >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>
+                {parseFloat(sellPrice) - showSellModal.unit_cost_thb * showSellModal.robux_amount >= 0 ? "+" : ""}
+                {fmtTHB(parseFloat(sellPrice) - showSellModal.unit_cost_thb * showSellModal.robux_amount)}
               </p>
             </div>
           )}
-          <button className="btn-primary" style={{ width: "100%" }} onClick={handleSellSubmit} disabled={!sellPrice}>
-            <CheckCircle size={14} /> Confirm Sale
+          <button className="btn-primary" style={{ width: "100%" }} onClick={handleSellSubmit} disabled={submitting || !sellPrice}>
+            {submitting ? "กำลังบันทึก..." : <><CheckCircle size={14} /> ยืนยันการขาย</>}
           </button>
         </Modal>
       )}
 
-      {/* Rate Modal */}
       {showRateModal && (
-        <Modal title="Update Exchange Rates" onClose={() => setShowRateModal(false)}>
-          <Field label="Buy Rate (THB per USDT)">
-            <input className="input-base" type="number" placeholder={String(state.buyRate)} value={rateForm.buyRate} onChange={(e) => setRateForm((r) => ({ ...r, buyRate: e.target.value }))} />
-          </Field>
-          <Field label="Sell Rate (R$ per THB)">
-            <input className="input-base" type="number" placeholder={String(state.sellRate)} value={rateForm.sellRate} onChange={(e) => setRateForm((r) => ({ ...r, sellRate: e.target.value }))} />
-          </Field>
+        <Modal title="อัปเดตอัตราแลกเปลี่ยน" onClose={() => setShowRateModal(false)}>
+          <Field label="Buy Rate (THB ต่อ USDT)"><input className="input-base" type="number" placeholder={String(settings.buy_rate)} value={rateForm.buyRate} onChange={(e) => setRateForm((r) => ({ ...r, buyRate: e.target.value }))} /></Field>
+          <Field label="Sell Rate (R$ ต่อ THB)"><input className="input-base" type="number" placeholder={String(settings.sell_rate)} value={rateForm.sellRate} onChange={(e) => setRateForm((r) => ({ ...r, sellRate: e.target.value }))} /></Field>
           <button className="btn-primary" style={{ width: "100%" }} onClick={handleRateSubmit}>
-            <RefreshCw size={14} /> Update Rates
+            <RefreshCw size={14} /> อัปเดต
           </button>
         </Modal>
       )}

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -29,7 +29,7 @@
 html, body {
   background: var(--bg-base);
   color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
+  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
@@ -55,7 +55,7 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-primary);
-  font-family: 'Space Mono', monospace;
+  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 13px;
   padding: 10px 14px;
   width: 100%;
@@ -71,11 +71,10 @@ html, body {
 .btn-primary {
   background: var(--accent-gold);
   color: #0a0b0e;
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-weight: 700;
   font-size: 13px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
   padding: 10px 20px;
   border-radius: 8px;
   border: none;
@@ -92,10 +91,10 @@ html, body {
 .btn-ghost {
   background: transparent;
   color: var(--text-secondary);
-  font-family: 'Syne', sans-serif;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   padding: 8px 16px;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -115,7 +114,7 @@ html, body {
   background: rgba(239, 68, 68, 0.08);
   color: var(--accent-red);
   border: 1px solid rgba(239, 68, 68, 0.2);
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 11px;
   font-weight: 600;
   padding: 6px 12px;
@@ -132,7 +131,7 @@ html, body {
   background: rgba(34, 197, 94, 0.08);
   color: var(--accent-green);
   border: 1px solid rgba(34, 197, 94, 0.2);
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 11px;
   font-weight: 600;
   padding: 6px 12px;
@@ -146,10 +145,10 @@ html, body {
 .btn-success:hover { background: rgba(34, 197, 94, 0.18); }
 
 .label {
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 6px;
@@ -157,18 +156,18 @@ html, body {
 }
 
 .section-title {
-  font-family: 'Syne', sans-serif;
-  font-size: 18px;
+  font-family: 'DM Sans', sans-serif;  /* ← เปลี่ยน */
+  font-size: 17px;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .badge-available {
   background: rgba(34, 197, 94, 0.1);
   color: var(--accent-green);
   border: 1px solid rgba(34, 197, 94, 0.2);
-  font-family: 'Space Mono', monospace;
+  font-family: 'DM Mono', monospace;  /* ← เปลี่ยน */
   font-size: 10px;
   padding: 3px 8px;
   border-radius: 99px;
@@ -178,7 +177,7 @@ html, body {
   background: rgba(239, 68, 68, 0.1);
   color: var(--accent-red);
   border: 1px solid rgba(239, 68, 68, 0.2);
-  font-family: 'Space Mono', monospace;
+  font-family: 'DM Mono', monospace;  /* ← เปลี่ยน */
   font-size: 10px;
   padding: 3px 8px;
   border-radius: 99px;
@@ -215,4 +214,5 @@ html, body {
   animation: fadeUp 0.2s ease both;
 }
 
-.num { font-family: 'Space Mono', monospace; }
+/* ตัวเลขทุกที่ใช้ DM Mono */
+.num { font-family: 'DM Mono', monospace; }
