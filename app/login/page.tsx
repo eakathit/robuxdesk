@@ -46,9 +46,10 @@ export default function LoginPage() {
           width: "100%",
           maxWidth: 400,
           background: "var(--bg-card)",
-          border: "1px solid var(--border-bright)",
+          border: "1px solid var(--border)",
           borderRadius: 20,
           padding: 40,
+          boxShadow: "0 4px 32px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.05)",
         }}
       >
         {/* Logo */}
@@ -58,25 +59,25 @@ export default function LoginPage() {
               width: 40,
               height: 40,
               borderRadius: 10,
-              background: "linear-gradient(135deg, var(--accent-gold), #e07b10)",
+              background: "linear-gradient(135deg, #7C3AED, #5B21B6)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Coins size={20} color="#0a0b0e" />
+            <Coins size={20} color="#0D0020" />
           </div>
           <div>
-            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 18, color: "var(--text-primary)", letterSpacing: "-0.02em" }}>
+            <span style={{ fontWeight: 800, fontSize: 18, color: "var(--text-primary)", letterSpacing: "-0.02em" }}>
               ROBUX
             </span>
-            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 18, color: "var(--accent-gold)", letterSpacing: "-0.02em" }}>
+            <span style={{ fontWeight: 800, fontSize: 18, color: "var(--accent-gold)", letterSpacing: "-0.02em" }}>
               DESK
             </span>
           </div>
         </div>
 
-        <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 22, color: "var(--text-primary)", marginBottom: 8 }}>
+        <h2 style={{ fontWeight: 700, fontSize: 22, color: "var(--text-primary)", marginBottom: 8 }}>
           เข้าสู่ระบบ
         </h2>
         <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 28 }}>
@@ -87,8 +88,8 @@ export default function LoginPage() {
         {error && (
           <div
             style={{
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.2)",
+              background: "rgba(225,29,72,0.07)",
+              border: "1px solid rgba(225,29,72,0.2)",
               borderRadius: 10,
               padding: "12px 16px",
               marginBottom: 20,

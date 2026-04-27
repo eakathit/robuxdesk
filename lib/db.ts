@@ -41,15 +41,20 @@ export async function addInventory(payload: {
   vndRate: number
   binanceRate: number
   unitCostTHB: number
+  username?: string
+  password?: string
 }) {
   const { data, error } = await supabase
     .from('inventory')
     .insert({
-      robux_amount:  payload.robuxAmount,
-      usdt_cost:     payload.usdtCost,
-      vnd_rate:      payload.vndRate,
-      binance_rate:  payload.binanceRate,
-      unit_cost_thb: payload.unitCostTHB,
+      robux_amount:   payload.robuxAmount,
+      remaining_robux: payload.robuxAmount,
+      usdt_cost:      payload.usdtCost,
+      vnd_rate:       payload.vndRate,
+      binance_rate:   payload.binanceRate,
+      unit_cost_thb:  payload.unitCostTHB,
+      username:       payload.username ?? null,
+      password:       payload.password ?? null,
     })
     .select()
     .single()
@@ -57,20 +62,36 @@ export async function addInventory(payload: {
   return data
 }
 
-export async function markAsSold(inventoryId: string, sellingPriceTHB: number, customerName?: string) {
-  // 1. สร้าง sales record
+export async function recordSale(payload: {
+  inventoryId: string
+  robuxSold: number
+  sellingPriceTHB: number
+  totalCostTHB: number
+  netProfit: number
+  customerName?: string
+  newRemainingRobux: number
+}) {
+  // 1. บันทึก sales record
   const { data: sale, error: saleErr } = await supabase
     .from('sales')
-    .insert({ inventory_id: inventoryId, selling_price_thb: sellingPriceTHB, customer_name: customerName })
+    .insert({
+      inventory_id:      payload.inventoryId,
+      robux_sold:        payload.robuxSold,
+      selling_price_thb: payload.sellingPriceTHB,
+      total_cost_thb:    payload.totalCostTHB,
+      net_profit:        payload.netProfit,
+      customer_name:     payload.customerName ?? null,
+    })
     .select()
     .single()
   if (saleErr) throw saleErr
 
-  // 2. อัปเดต status ใน inventory
+  // 2. ตัดสต็อก + เปลี่ยน status ถ้าหมด
+  const newStatus = payload.newRemainingRobux <= 0 ? 'sold' : 'available'
   const { error: invErr } = await supabase
     .from('inventory')
-    .update({ status: 'sold' })
-    .eq('id', inventoryId)
+    .update({ remaining_robux: payload.newRemainingRobux, status: newStatus })
+    .eq('id', payload.inventoryId)
   if (invErr) throw invErr
 
   return sale

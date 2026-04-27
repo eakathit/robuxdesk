@@ -13,16 +13,28 @@ export interface RobuxAccount {
   id: string;
   createdAt: string;
   robuxAmount: number;
-  remainingRobux: number; // <-- เพิ่มบรรทัดนี้
+  remainingRobux: number;
   usdtCost: number;
-  vndRate: number;        
-  binanceRate: number;    
-  unitCostTHB: number;    
+  vndRate: number;
+  binanceRate: number;
+  unitCostTHB: number;
   status: "available" | "sold";
   soldAt?: string;
   sellingPriceTHB?: number;
   netProfit?: number;
-  accountInfo?: string;
+  username?: string;
+  password?: string;
+}
+
+export interface SaleRecord {
+  id: string;
+  createdAt: string;
+  inventoryId: string;
+  robuxSold: number;
+  sellingPriceTHB: number;
+  totalCostTHB: number;
+  netProfit: number;
+  customerName?: string;
 }
 
 export interface AppState {
