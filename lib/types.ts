@@ -1,3 +1,5 @@
+// eakathit/robuxdesk/robuxdesk-1a4f2eca88bfc8e88d2c800ac2907e4df81d3211/lib/types.ts
+
 export interface WalletEntry {
   id: string;
   date: string;
@@ -11,19 +13,21 @@ export interface RobuxAccount {
   id: string;
   createdAt: string;
   robuxAmount: number;
+  remainingRobux: number; // <-- เพิ่มบรรทัดนี้
   usdtCost: number;
-  vndRate: number;        // VND per USDT (used for reference/logging)
-  binanceRate: number;    // THB per USDT used at purchase time
-  unitCostTHB: number;    // (usdtCost * binanceRate) / robuxAmount
+  vndRate: number;        
+  binanceRate: number;    
+  unitCostTHB: number;    
   status: "available" | "sold";
   soldAt?: string;
   sellingPriceTHB?: number;
   netProfit?: number;
+  accountInfo?: string;
 }
 
 export interface AppState {
   walletEntries: WalletEntry[];
   accounts: RobuxAccount[];
-  buyRate: number;   // THB per USDT (buy)
-  sellRate: number;  // Robux per THB sell rate (e.g. how many robux per 1 THB)
+  buyRate: number;   
+  sellRate: number;  
 }

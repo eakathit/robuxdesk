@@ -5,6 +5,7 @@ import {
   Wallet, Package, TrendingUp, Plus, DollarSign,
   Activity, ChevronRight, X, CheckCircle, Trash2,
   BarChart3, ArrowUpRight, ArrowDownRight, Coins, RefreshCw, LogOut,
+  Key, Copy, Save // <-- เพิ่มไอคอนใหม่
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -23,17 +24,20 @@ interface InventoryItem {
   id: string;
   created_at: string;
   robux_amount: number;
+  remaining_robux: number;
   usdt_cost: number;
   vnd_rate: number;
   binance_rate: number;
   unit_cost_thb: number;
   status: "available" | "sold";
+  account_info?: string; // <-- เพิ่มคอลัมน์ใหม่
 }
 
 interface SaleItem {
   id: string;
   created_at: string;
   inventory_id: string;
+  robux_sold: number;
   selling_price_thb: number;
   total_cost_thb: number;
   net_profit: number;
@@ -53,7 +57,7 @@ function fmt(n: number, decimals = 2) {
 function fmtTHB(n: number) { return "฿" + fmt(n, 2); }
 function fmtRobux(n: number) { return n.toLocaleString("en-US") + " R$"; }
 
-// ── Modal ──────────────────────────────────────────────────────────────────
+// ── Modal & UI Components ──────────────────────────────────────────────────
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -103,7 +107,6 @@ function RateBadge({ label, value, unit, color }: { label: string; value: string
   );
 }
 
-// ── Loading Spinner ────────────────────────────────────────────────────────
 function LoadingScreen() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-base)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -126,16 +129,20 @@ export default function Dashboard() {
   const [settings, setSettings] = useState<Settings>({ buy_rate: 36.5, sell_rate: 5.0 });
   const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "inventory" | "sales">("overview");
 
-  // Modal states
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showSellModal, setShowSellModal] = useState<InventoryItem | null>(null);
   const [showRateModal, setShowRateModal] = useState(false);
+  
+  // State ใหม่สำหรับข้อมูลบัญชี
+  const [showAccountModal, setShowAccountModal] = useState<InventoryItem | null>(null);
+  const [accountInfoText, setAccountInfoText] = useState("");
+  const [copied, setCopied] = useState(false);
 
-  // Form states
   const [wForm, setWForm] = useState({ thbAmount: "", usdtReceived: "", note: "" });
-  const [iForm, setIForm] = useState({ robuxAmount: "", usdtCost: "", vndRate: "" });
+  const [iForm, setIForm] = useState({ robuxAmount: "", usdtCost: "", vndRate: "", accountInfo: "" }); // เพิ่ม accountInfo ในฟอร์มเพิ่มสินค้า
   const [sellPrice, setSellPrice] = useState("");
+  const [sellRobuxAmount, setSellRobuxAmount] = useState(""); 
   const [customerName, setCustomerName] = useState("");
   const [rateForm, setRateForm] = useState({ buyRate: "", sellRate: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -177,10 +184,10 @@ export default function Dashboard() {
     return totalTHB > 0 ? weighted / totalTHB : settings.buy_rate;
   })();
 
-  const availableAccounts = inventory.filter((a) => a.status === "available");
-  const soldAccounts = inventory.filter((a) => a.status === "sold");
-  const totalInvestmentTHB = inventory.reduce((s, a) => s + a.usdt_cost * a.binance_rate, 0);
-  const totalRobuxStock = availableAccounts.reduce((s, a) => s + a.robux_amount, 0);
+  const availableAccounts = inventory.filter((a) => a.status === "available" && a.remaining_robux > 0);
+  const soldAccounts = inventory.filter((a) => a.status === "sold" || a.remaining_robux === 0);
+  const totalInvestmentTHB = availableAccounts.reduce((s, a) => s + a.usdt_cost * a.binance_rate, 0);
+  const totalRobuxStock = availableAccounts.reduce((s, a) => s + (a.remaining_robux || 0), 0);
   const totalNetProfit = sales.reduce((s, a) => s + (a.net_profit ?? 0), 0);
 
   // ── Handlers ───────────────────────────────────────────────────────────
@@ -203,14 +210,18 @@ export default function Dashboard() {
     if (!robux || !usdt || robux <= 0 || usdt <= 0) return;
     const unitCost = (usdt * avgBinanceRate) / robux;
     setSubmitting(true);
+    
     await supabase.from("inventory").insert({
       robux_amount: robux,
+      remaining_robux: robux, 
       usdt_cost: usdt,
       vnd_rate: vnd,
       binance_rate: avgBinanceRate,
       unit_cost_thb: unitCost,
+      account_info: iForm.accountInfo || null // ส่งข้อมูลบัญชีไปด้วย
     });
-    setIForm({ robuxAmount: "", usdtCost: "", vndRate: "" });
+    
+    setIForm({ robuxAmount: "", usdtCost: "", vndRate: "", accountInfo: "" });
     setShowInventoryModal(false);
     setSubmitting(false);
     fetchAll();
@@ -219,21 +230,59 @@ export default function Dashboard() {
   async function handleSellSubmit() {
     if (!showSellModal) return;
     const price = parseFloat(sellPrice);
-    if (!price || price <= 0) return;
-    const totalCost = showSellModal.unit_cost_thb * showSellModal.robux_amount;
+    const amountToSell = parseFloat(sellRobuxAmount);
+    
+    if (!price || price <= 0 || !amountToSell || amountToSell <= 0) return;
+    if (amountToSell > showSellModal.remaining_robux) {
+      alert("ยอดที่ต้องการขาย มากกว่ายอดคงเหลือ!");
+      return;
+    }
+
+    const totalCost = showSellModal.unit_cost_thb * amountToSell;
     setSubmitting(true);
+    
     await supabase.from("sales").insert({
       inventory_id: showSellModal.id,
+      robux_sold: amountToSell, 
       selling_price_thb: price,
-      total_cost_thb: totalCost,
+      total_cost_thb: totalCost, 
       customer_name: customerName || null,
     });
-    await supabase.from("inventory").update({ status: "sold" }).eq("id", showSellModal.id);
+
+    const newRemaining = showSellModal.remaining_robux - amountToSell;
+    const newStatus = newRemaining <= 0 ? "sold" : "available";
+
+    await supabase.from("inventory").update({ 
+      remaining_robux: newRemaining,
+      status: newStatus 
+    }).eq("id", showSellModal.id);
+
     setSellPrice("");
+    setSellRobuxAmount("");
     setCustomerName("");
     setShowSellModal(null);
     setSubmitting(false);
     fetchAll();
+  }
+  
+  // ── Handlers สำหรับจัดการ Account Info ──
+  async function handleSaveAccountInfo() {
+    if (!showAccountModal) return;
+    setSubmitting(true);
+    await supabase.from("inventory").update({ 
+      account_info: accountInfoText || null 
+    }).eq("id", showAccountModal.id);
+    
+    setSubmitting(false);
+    setShowAccountModal(null);
+    fetchAll();
+  }
+
+  function handleCopyAccountInfo() {
+    if (!accountInfoText) return;
+    navigator.clipboard.writeText(accountInfoText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   async function handleDeleteWallet(id: string) {
@@ -294,21 +343,19 @@ export default function Dashboard() {
 
       {/* Main */}
       <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
-        {/* Rate Badges */}
+        {/* Rate Badges & Stat Cards & Tabs เหมือนเดิม... */}
         <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" as const }}>
           <RateBadge label="Buy Rate" value={fmt(settings.buy_rate, 2)} unit="THB / USDT" color="var(--accent-gold)" />
           <RateBadge label="Sell Rate" value={fmt(settings.sell_rate, 1)} unit="R$ per THB" color="var(--accent-cyan)" />
           <RateBadge label="Avg Binance Rate" value={fmt(avgBinanceRate, 4)} unit="THB / USDT (weighted)" color="var(--accent-blue)" />
         </div>
 
-        {/* Stat Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 32 }}>
           <StatCard icon={<DollarSign size={18} />} label="ลงทุนทั้งหมด" value={fmtTHB(totalInvestmentTHB)} sub={`${inventory.length} บัญชีทั้งหมด`} accent="gold" />
-          <StatCard icon={<Package size={18} />} label="Robux คงเหลือ" value={fmtRobux(totalRobuxStock)} sub={`${availableAccounts.length} บัญชีพร้อมขาย`} accent="blue" />
-          <StatCard icon={<TrendingUp size={18} />} label="กำไรสุทธิรวม" value={fmtTHB(totalNetProfit)} sub={`${soldAccounts.length} บัญชีที่ขายแล้ว`} accent={totalNetProfit >= 0 ? "green" : "red"} />
+          <StatCard icon={<Package size={18} />} label="Robux คงเหลือ" value={fmtRobux(totalRobuxStock)} sub={`${availableAccounts.length} บัญชีมีสต็อก`} accent="blue" />
+          <StatCard icon={<TrendingUp size={18} />} label="กำไรสุทธิรวม" value={fmtTHB(totalNetProfit)} sub={`${sales.length} รายการขาย`} accent={totalNetProfit >= 0 ? "green" : "red"} />
         </div>
 
-        {/* Tabs */}
         <div style={{ display: "flex", gap: 6, marginBottom: 24, padding: 4, background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border)", width: "fit-content" }}>
           {tabs.map((t) => (
             <button key={t.id} onClick={() => setActiveTab(t.id)} style={{ fontFamily: "'Syne',sans-serif", fontWeight: 600, fontSize: 12, letterSpacing: "0.04em", padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.15s", background: activeTab === t.id ? "var(--bg-elevated)" : "transparent", color: activeTab === t.id ? "var(--accent-gold)" : "var(--text-muted)" }}>
@@ -319,10 +366,11 @@ export default function Dashboard() {
 
         {/* ── OVERVIEW ── */}
         {activeTab === "overview" && (
-          <div className="animate-fade-up" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+           // โค้ด Overview
+           <div className="animate-fade-up" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
             <div className="card" style={{ padding: 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <h3 className="section-title">ประวัติการขาย</h3>
+                <h3 className="section-title">ประวัติการขายล่าสุด</h3>
                 <button className="btn-ghost" onClick={() => setActiveTab("sales")} style={{ fontSize: 11 }}>ดูทั้งหมด <ChevronRight size={12} /></button>
               </div>
               {sales.length === 0 ? (
@@ -332,7 +380,7 @@ export default function Dashboard() {
                   {sales.slice(0, 5).map((s) => (
                     <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: "var(--bg-elevated)", borderRadius: 10, border: "1px solid var(--border)" }}>
                       <div>
-                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmtRobux(s.inventory?.robux_amount ?? 0)}</p>
+                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmtRobux(s.robux_sold ?? s.inventory?.robux_amount ?? 0)}</p>
                         <p style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>{new Date(s.created_at).toLocaleDateString("th-TH")}</p>
                       </div>
                       <div style={{ textAlign: "right" }}>
@@ -350,7 +398,7 @@ export default function Dashboard() {
 
             <div className="card" style={{ padding: 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <h3 className="section-title">สต็อกปัจจุบัน</h3>
+                <h3 className="section-title">สต็อกคงเหลือ</h3>
                 <button className="btn-ghost" onClick={() => setActiveTab("inventory")} style={{ fontSize: 11 }}>จัดการ <ChevronRight size={12} /></button>
               </div>
               {availableAccounts.length === 0 ? (
@@ -360,7 +408,7 @@ export default function Dashboard() {
                   {availableAccounts.slice(0, 5).map((a) => (
                     <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", background: "var(--bg-elevated)", borderRadius: 10, border: "1px solid var(--border)" }}>
                       <div>
-                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmtRobux(a.robux_amount)}</p>
+                        <p className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>เหลือ: {fmtRobux(a.remaining_robux)} <span style={{fontSize: 10, color: "var(--text-muted)"}}>จาก {fmtRobux(a.robux_amount)}</span></p>
                         <p style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>ต้นทุน: {fmtTHB(a.usdt_cost * a.binance_rate)}</p>
                       </div>
                       <div style={{ textAlign: "right" }}>
@@ -377,6 +425,7 @@ export default function Dashboard() {
 
         {/* ── WALLET ── */}
         {activeTab === "wallet" && (
+          // โค้ด Wallet
           <div className="animate-fade-up">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h2 className="section-title">Wallet — โอน THB → USDT</h2>
@@ -423,7 +472,7 @@ export default function Dashboard() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["วันที่", "Robux", "ต้นทุน USDT", "เรต Binance", "ต้นทุน/R$", "ต้นทุนรวม (THB)", "สถานะ", "จัดการ"].map((h) => (
+                      {["วันที่", "คงเหลือ / รวม", "ต้นทุน USDT", "เรต Binance", "สถานะ", "จัดการ"].map((h) => (
                         <th key={h} style={{ fontFamily: "'Syne',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "var(--text-muted)", padding: "10px 14px", textAlign: "left" as const }}>{h}</th>
                       ))}
                     </tr>
@@ -432,15 +481,30 @@ export default function Dashboard() {
                     {availableAccounts.map((a, i) => (
                       <tr key={a.id} style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
                         <td style={{ padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace" }}>{new Date(a.created_at).toLocaleDateString("th-TH")}</td>
-                        <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(a.robux_amount)}</span></td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(a.remaining_robux)}</span>
+                          <span className="num" style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 6 }}>/ {fmtRobux(a.robux_amount)}</span>
+                        </td>
                         <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--accent-cyan)" }}>${fmt(a.usdt_cost)}</span></td>
                         <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--text-secondary)" }}>{fmt(a.binance_rate, 4)}</span></td>
-                        <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--text-primary)" }}>{fmt(a.unit_cost_thb, 5)}</span></td>
-                        <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--accent-gold)" }}>{fmtTHB(a.usdt_cost * a.binance_rate)}</span></td>
-                        <td style={{ padding: "12px 14px" }}><span className="badge-available">พร้อมขาย</span></td>
+                        <td style={{ padding: "12px 14px" }}>
+                           {a.remaining_robux < a.robux_amount ? <span className="badge-available" style={{background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)'}}>แบ่งขายแล้ว</span> : <span className="badge-available">พร้อมขาย</span>}
+                        </td>
                         <td style={{ padding: "12px 14px" }}>
                           <div style={{ display: "flex", gap: 8 }}>
-                            <button className="btn-success" onClick={() => { setShowSellModal(a); setSellPrice(""); setCustomerName(""); }}><CheckCircle size={11} /> ขาย</button>
+                            {/* ปุ่มดูข้อมูลบัญชี (รูปกุญแจ) */}
+                            <button className="btn-ghost" style={{ padding: "6px 8px" }} onClick={() => { 
+                              setShowAccountModal(a); 
+                              setAccountInfoText(a.account_info || ""); 
+                            }}>
+                              <Key size={13} style={{ color: a.account_info ? "var(--text-primary)" : "var(--text-muted)" }} />
+                            </button>
+                            <button className="btn-success" onClick={() => { 
+                              setShowSellModal(a); 
+                              setSellPrice(""); 
+                              setSellRobuxAmount(String(a.remaining_robux));
+                              setCustomerName(""); 
+                            }}><CheckCircle size={11} /> ขาย</button>
                             <button className="btn-danger" onClick={() => handleDeleteInventory(a.id)}><Trash2 size={11} /></button>
                           </div>
                         </td>
@@ -455,6 +519,7 @@ export default function Dashboard() {
 
         {/* ── SALES ── */}
         {activeTab === "sales" && (
+           // โค้ด Sales
           <div className="animate-fade-up">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h2 className="section-title">ประวัติการขาย</h2>
@@ -479,7 +544,7 @@ export default function Dashboard() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["วันที่ขาย", "Robux", "ลูกค้า", "ต้นทุน (THB)", "ราคาขาย (THB)", "กำไรสุทธิ", "Margin"].map((h) => (
+                      {["วันที่ขาย", "จำนวนขาย (R$)", "ลูกค้า", "ต้นทุนส่วนที่ขาย", "ราคาขาย (THB)", "กำไรสุทธิ", "Margin"].map((h) => (
                         <th key={h} style={{ fontFamily: "'Syne',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "var(--text-muted)", padding: "10px 14px", textAlign: "left" as const }}>{h}</th>
                       ))}
                     </tr>
@@ -490,7 +555,7 @@ export default function Dashboard() {
                       return (
                         <tr key={s.id} style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
                           <td style={{ padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", fontFamily: "'Space Mono',monospace" }}>{new Date(s.created_at).toLocaleDateString("th-TH")}</td>
-                          <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(s.inventory?.robux_amount ?? 0)}</span></td>
+                          <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(s.robux_sold ?? s.inventory?.robux_amount ?? 0)}</span></td>
                           <td style={{ padding: "12px 14px" }}><span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{s.customer_name || "-"}</span></td>
                           <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--text-secondary)" }}>{fmtTHB(s.total_cost_thb)}</span></td>
                           <td style={{ padding: "12px 14px" }}><span className="num" style={{ fontSize: 13, color: "var(--accent-gold)" }}>{fmtTHB(s.selling_price_thb)}</span></td>
@@ -508,73 +573,110 @@ export default function Dashboard() {
       </main>
 
       {/* ── Modals ── */}
-
-      {showWalletModal && (
-        <Modal title="บันทึกการโอน THB → USDT" onClose={() => setShowWalletModal(false)}>
-          <Field label="จำนวน THB ที่โอน">
-            <input className="input-base" type="number" placeholder="เช่น 3650" value={wForm.thbAmount} onChange={(e) => setWForm((f) => ({ ...f, thbAmount: e.target.value }))} />
-          </Field>
-          <Field label="USDT ที่ได้รับ">
-            <input className="input-base" type="number" placeholder="เช่น 100" value={wForm.usdtReceived} onChange={(e) => setWForm((f) => ({ ...f, usdtReceived: e.target.value }))} />
-          </Field>
-          {wForm.thbAmount && wForm.usdtReceived && parseFloat(wForm.usdtReceived) > 0 && (
-            <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
-              <p className="label" style={{ marginBottom: 4 }}>เรตที่คำนวณได้</p>
-              <p className="num" style={{ color: "var(--accent-gold)", fontSize: 18 }}>{fmt(parseFloat(wForm.thbAmount) / parseFloat(wForm.usdtReceived), 4)} THB/USDT</p>
-            </div>
-          )}
-          <Field label="หมายเหตุ (ไม่บังคับ)">
-            <input className="input-base" type="text" placeholder="เช่น Binance TH spot" value={wForm.note} onChange={(e) => setWForm((f) => ({ ...f, note: e.target.value }))} />
-          </Field>
-          <button className="btn-primary" style={{ width: "100%" }} onClick={handleWalletSubmit} disabled={submitting || !wForm.thbAmount || !wForm.usdtReceived}>
-            {submitting ? "กำลังบันทึก..." : <><Plus size={14} /> บันทึก</>}
-          </button>
+      
+      {/* Modal จัดการข้อมูลบัญชี (Credentials) */}
+      {showAccountModal && (
+        <Modal title="ข้อมูลบัญชี (Credentials)" onClose={() => setShowAccountModal(null)}>
+          <div style={{ marginBottom: 16 }}>
+            <p className="label" style={{ marginBottom: 8 }}>รายละเอียด Username / Password / Pin</p>
+            <textarea 
+              className="input-base" 
+              style={{ 
+                minHeight: 120, 
+                resize: "vertical", 
+                fontFamily: "'Space Mono', monospace", 
+                fontSize: 13, 
+                lineHeight: 1.5 
+              }} 
+              placeholder="Username: robux_seller&#10;Password: MyPass123&#10;Pin: 1234" 
+              value={accountInfoText} 
+              onChange={(e) => setAccountInfoText(e.target.value)} 
+            />
+          </div>
+          
+          <div style={{ display: "flex", gap: 10 }}>
+            <button 
+              className="btn-ghost" 
+              style={{ flex: 1, display: "flex", justifyContent: "center", border: "1px solid var(--border)" }} 
+              onClick={handleCopyAccountInfo}
+              disabled={!accountInfoText}
+            >
+              {copied ? <><CheckCircle size={14} color="var(--accent-green)" /> คัดลอกแล้ว!</> : <><Copy size={14} /> คัดลอก</>}
+            </button>
+            <button 
+              className="btn-primary" 
+              style={{ flex: 1, display: "flex", justifyContent: "center" }} 
+              onClick={handleSaveAccountInfo}
+              disabled={submitting}
+            >
+              {submitting ? "กำลังบันทึก..." : <><Save size={14} /> บันทึกแก้ไข</>}
+            </button>
+          </div>
         </Modal>
       )}
 
+      {/* Modal เพิ่มบัญชี */}
       {showInventoryModal && (
         <Modal title="เพิ่มบัญชี Robux" onClose={() => setShowInventoryModal(false)}>
-          <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
-            <p className="label" style={{ marginBottom: 2 }}>เรต Binance เฉลี่ยปัจจุบัน</p>
-            <p className="num" style={{ color: "var(--accent-cyan)", fontSize: 16 }}>{fmt(avgBinanceRate, 4)} THB/USDT</p>
-          </div>
           <Field label="จำนวน Robux"><input className="input-base" type="number" placeholder="เช่น 10000" value={iForm.robuxAmount} onChange={(e) => setIForm((f) => ({ ...f, robuxAmount: e.target.value }))} /></Field>
           <Field label="ต้นทุน USDT"><input className="input-base" type="number" placeholder="เช่น 1.75" value={iForm.usdtCost} onChange={(e) => setIForm((f) => ({ ...f, usdtCost: e.target.value }))} /></Field>
-          <Field label="เรต VND (ไม่บังคับ)"><input className="input-base" type="number" placeholder="เช่น 25000" value={iForm.vndRate} onChange={(e) => setIForm((f) => ({ ...f, vndRate: e.target.value }))} /></Field>
-          {iForm.robuxAmount && iForm.usdtCost && parseFloat(iForm.robuxAmount) > 0 && (
-            <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div><p className="label" style={{ marginBottom: 2 }}>ต้นทุน/R$</p><p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>{fmt((parseFloat(iForm.usdtCost) * avgBinanceRate) / parseFloat(iForm.robuxAmount), 5)} ฿/R$</p></div>
-              <div><p className="label" style={{ marginBottom: 2 }}>ต้นทุนรวม</p><p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>{fmtTHB(parseFloat(iForm.usdtCost) * avgBinanceRate)}</p></div>
-            </div>
-          )}
-          <button className="btn-primary" style={{ width: "100%" }} onClick={handleInventorySubmit} disabled={submitting || !iForm.robuxAmount || !iForm.usdtCost}>
+          
+          <Field label="ข้อมูลบัญชี User/Pass (ไม่บังคับ)">
+            <textarea 
+              className="input-base" 
+              style={{ minHeight: 80, resize: "vertical", fontFamily: "'Space Mono', monospace", fontSize: 13 }} 
+              placeholder="Username: xxx&#10;Password: yyy" 
+              value={iForm.accountInfo} 
+              onChange={(e) => setIForm((f) => ({ ...f, accountInfo: e.target.value }))} 
+            />
+          </Field>
+          
+          <button className="btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={handleInventorySubmit} disabled={submitting || !iForm.robuxAmount || !iForm.usdtCost}>
             {submitting ? "กำลังบันทึก..." : <><Plus size={14} /> เพิ่มบัญชี</>}
           </button>
         </Modal>
       )}
 
+      {/* โมเดลอื่นๆ ยังคงเหมือนเดิม */}
+      {showWalletModal && (
+         <Modal title="บันทึกการโอน THB → USDT" onClose={() => setShowWalletModal(false)}>
+           <Field label="จำนวน THB ที่โอน"><input className="input-base" type="number" placeholder="เช่น 3650" value={wForm.thbAmount} onChange={(e) => setWForm((f) => ({ ...f, thbAmount: e.target.value }))} /></Field>
+           <Field label="USDT ที่ได้รับ"><input className="input-base" type="number" placeholder="เช่น 100" value={wForm.usdtReceived} onChange={(e) => setWForm((f) => ({ ...f, usdtReceived: e.target.value }))} /></Field>
+           <button className="btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={handleWalletSubmit} disabled={submitting || !wForm.thbAmount || !wForm.usdtReceived}>
+             {submitting ? "กำลังบันทึก..." : <><Plus size={14} /> บันทึก</>}
+           </button>
+         </Modal>
+      )}
+
       {showSellModal && (
-        <Modal title="บันทึกการขาย" onClose={() => setShowSellModal(null)}>
+        <Modal title="บันทึกการขาย (แบ่งขายได้)" onClose={() => setShowSellModal(null)}>
           <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, marginBottom: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div><p className="label" style={{ marginBottom: 2 }}>Robux</p><p className="num" style={{ color: "var(--accent-gold)", fontSize: 16 }}>{fmtRobux(showSellModal.robux_amount)}</p></div>
-            <div><p className="label" style={{ marginBottom: 2 }}>ต้นทุน</p><p className="num" style={{ color: "var(--text-primary)", fontSize: 16 }}>{fmtTHB(showSellModal.unit_cost_thb * showSellModal.robux_amount)}</p></div>
+            <div><p className="label" style={{ marginBottom: 2 }}>Robux คงเหลือ</p><p className="num" style={{ color: "var(--accent-gold)", fontSize: 16 }}>{fmtRobux(showSellModal.remaining_robux)}</p></div>
+            <div><p className="label" style={{ marginBottom: 2 }}>ต้นทุน/R$</p><p className="num" style={{ color: "var(--text-primary)", fontSize: 16 }}>{fmt(showSellModal.unit_cost_thb, 5)} ฿</p></div>
           </div>
-          <Field label="ราคาขาย (THB)">
-            <input className="input-base" type="number" placeholder="เช่น 300" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} autoFocus />
+          
+          <Field label="จำนวน Robux ที่ต้องการขาย">
+            <input className="input-base" type="number" placeholder={`สูงสุด ${showSellModal.remaining_robux}`} value={sellRobuxAmount} onChange={(e) => setSellRobuxAmount(e.target.value)} autoFocus />
           </Field>
+
+          <Field label="ราคาขายรวม (THB)">
+            <input className="input-base" type="number" placeholder="เช่น 300" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} />
+          </Field>
+
           <Field label="ชื่อลูกค้า (ไม่บังคับ)">
             <input className="input-base" type="text" placeholder="เช่น คุณสมชาย" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
           </Field>
-          {sellPrice && parseFloat(sellPrice) > 0 && (
+
+          {sellPrice && sellRobuxAmount && parseFloat(sellPrice) > 0 && parseFloat(sellRobuxAmount) > 0 && (
             <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
-              <p className="label" style={{ marginBottom: 4 }}>กำไรประมาณ</p>
-              <p className="num" style={{ fontSize: 22, color: parseFloat(sellPrice) - showSellModal.unit_cost_thb * showSellModal.robux_amount >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>
-                {parseFloat(sellPrice) - showSellModal.unit_cost_thb * showSellModal.robux_amount >= 0 ? "+" : ""}
-                {fmtTHB(parseFloat(sellPrice) - showSellModal.unit_cost_thb * showSellModal.robux_amount)}
+              <p className="label" style={{ marginBottom: 4 }}>กำไรประมาณ (เฉพาะส่วนที่ขาย)</p>
+              <p className="num" style={{ fontSize: 22, color: parseFloat(sellPrice) - (showSellModal.unit_cost_thb * parseFloat(sellRobuxAmount)) >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>
+                {parseFloat(sellPrice) - (showSellModal.unit_cost_thb * parseFloat(sellRobuxAmount)) >= 0 ? "+" : ""}
+                {fmtTHB(parseFloat(sellPrice) - (showSellModal.unit_cost_thb * parseFloat(sellRobuxAmount)))}
               </p>
             </div>
           )}
-          <button className="btn-primary" style={{ width: "100%" }} onClick={handleSellSubmit} disabled={submitting || !sellPrice}>
+          <button className="btn-primary" style={{ width: "100%" }} onClick={handleSellSubmit} disabled={submitting || !sellPrice || !sellRobuxAmount}>
             {submitting ? "กำลังบันทึก..." : <><CheckCircle size={14} /> ยืนยันการขาย</>}
           </button>
         </Modal>
