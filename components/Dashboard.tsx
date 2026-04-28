@@ -5,7 +5,7 @@ import {
   Wallet, Package, TrendingUp, Plus, DollarSign,
   Activity, ChevronRight, X, CheckCircle, Trash2,
   BarChart3, ArrowUpRight, ArrowDownRight, Coins, RefreshCw, LogOut,
-  Key, Copy, Save, Globe, ShieldCheck // <-- เพิ่มไอคอนใหม่
+  Key, Copy, Save, Globe, ShieldCheck, ShieldOff, EyeOff // <-- เพิ่มไอคอนใหม่
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -29,10 +29,11 @@ interface InventoryItem {
   vnd_rate: number;
   binance_rate: number;
   unit_cost_thb: number;
-  status: "available" | "sold";
+  status: "available" | "sold" | "banned" | "inactive";
   account_info?: string;
   username?: string;
   password?: string;
+  loss_thb?: number;
 }
 
 interface SaleItem {
@@ -192,9 +193,12 @@ export default function Dashboard() {
   })();
 
   const availableAccounts = inventory.filter((a) => a.status === "available" && a.remaining_robux > 0);
+  const closedAccounts = inventory.filter((a) => a.status === "banned" || a.status === "inactive");
   const totalInvestmentTHB = availableAccounts.reduce((s, a) => s + a.usdt_cost * a.binance_rate, 0);
   const totalRobuxStock = availableAccounts.reduce((s, a) => s + (a.remaining_robux || 0), 0);
   const totalNetProfit = sales.reduce((s, a) => s + (a.net_profit ?? 0), 0);
+  const totalLossFromBans = inventory.filter((a) => a.status === "banned").reduce((s, a) => s + (a.loss_thb ?? 0), 0);
+  const realNetProfit = totalNetProfit - totalLossFromBans;
 
   // ── Handlers ───────────────────────────────────────────────────────────
   async function handleWalletSubmit() {
@@ -345,6 +349,26 @@ export default function Dashboard() {
     setTimeout(() => setCopiedField(null), 2000);
   }
 
+  async function handleReportBan(account: InventoryItem) {
+    const username = account.username || account.id.slice(0, 8);
+    if (!window.confirm(`ยืนยัน Report Ban บัญชี "${username}"?\nRobux คงเหลือ ${account.remaining_robux.toLocaleString("en-US")} R$ จะถูกตัดเป็น 0\nและระบบจะบันทึกเป็นยอดขาดทุนสะสม ฿${((account.remaining_robux / 1000) * (account.usdt_cost * account.binance_rate)).toFixed(2)}`)) return;
+    const loss = parseFloat(((account.remaining_robux / 1000) * (account.usdt_cost * account.binance_rate)).toFixed(2));
+    setSubmitting(true);
+    await supabase.from("inventory").update({
+      status: "banned",
+      // ไม่ zero remaining_robux เพื่อให้ยังโชว์ยอดที่หายจริงในตาราง Closed
+      loss_thb: loss,
+    }).eq("id", account.id);
+    setSubmitting(false);
+    fetchAll();
+  }
+
+  async function handleMarkInactive(account: InventoryItem) {
+    if (!window.confirm(`ปิดบัญชี "${account.username || account.id.slice(0, 8)}"?\nบัญชีนี้จะไม่แสดงในรายการเลือกส่งของอีกต่อไป`)) return;
+    await supabase.from("inventory").update({ status: "inactive" }).eq("id", account.id);
+    fetchAll();
+  }
+
   async function handleDeleteWallet(id: string) {
     await supabase.from("wallets").delete().eq("id", id);
     fetchAll();
@@ -471,10 +495,11 @@ export default function Dashboard() {
           <RateBadge label="Avg Binance Rate" value={fmt(avgBinanceRate, 4)} unit="THB / USDT (weighted)" color="var(--accent-blue)" />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 32 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 16, marginBottom: 32 }}>
           <StatCard icon={<DollarSign size={18} />} label="ลงทุนทั้งหมด" value={fmtTHB(totalInvestmentTHB)} sub={`${inventory.length} บัญชีทั้งหมด`} accent="gold" />
           <StatCard icon={<Package size={18} />} label="Robux คงเหลือ" value={fmtRobux(totalRobuxStock)} sub={`${availableAccounts.length} บัญชีมีสต็อก`} accent="blue" />
-          <StatCard icon={<TrendingUp size={18} />} label="กำไรสุทธิรวม" value={fmtTHB(totalNetProfit)} sub={`${sales.length} รายการขาย`} accent={totalNetProfit >= 0 ? "green" : "red"} />
+          <StatCard icon={<ShieldOff size={18} />} label="Loss / 損 (ขาดทุน)" value={totalLossFromBans > 0 ? `-${fmtTHB(totalLossFromBans)}` : fmtTHB(0)} sub={`${inventory.filter(a => a.status === "banned").length} บัญชีโดน Ban`} accent="red" />
+          <StatCard icon={<TrendingUp size={18} />} label="กำไรสุทธิ (หักความเสี่ยง)" value={fmtTHB(realNetProfit)} sub={`${sales.length} รายการขาย`} accent={realNetProfit >= 0 ? "green" : "red"} />
         </div>
 
         <div style={{ display: "flex", gap: 6, marginBottom: 24, padding: 4, background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border)", width: "fit-content" }}>
@@ -583,6 +608,8 @@ export default function Dashboard() {
               <h2 className="section-title">คลัง — บัญชี Robux</h2>
               <button className="btn-primary" onClick={() => setShowInventoryModal(true)}><Plus size={14} /> เพิ่มบัญชี</button>
             </div>
+
+            {/* Active Accounts */}
             {availableAccounts.length === 0 ? (
               <div className="card" style={{ padding: 48, textAlign: "center" }}>
                 <Package size={32} style={{ color: "var(--text-muted)", margin: "0 auto 12px" }} />
@@ -591,7 +618,7 @@ export default function Dashboard() {
             ) : (
               <div style={tableShellStyle}>
                 <div style={tableViewportStyle}>
-                <table style={tableStyle}>
+                <table style={{ ...tableStyle, minWidth: 1060 }}>
                   <thead>
                     <tr style={tableHeaderRowStyle}>
                       {["วันที่", "บัญชี (Username)", "คงเหลือ / รวม", "ต้นทุน USDT", "เรต Binance", "สถานะ", "จัดการ"].map((h) => (
@@ -615,28 +642,41 @@ export default function Dashboard() {
                         <td style={tableCellStyle}><span className="num" style={{ fontSize: 13, color: "var(--accent-cyan)" }}>${fmt(a.usdt_cost)}</span></td>
                         <td style={tableCellStyle}><span className="num" style={{ fontSize: 13, color: "var(--text-secondary)" }}>{fmt(a.binance_rate, 4)}</span></td>
                         <td style={tableCellStyle}>
-                           {a.remaining_robux < a.robux_amount ? <span className="badge-available" style={{background: 'rgba(37, 99, 235, 0.1)', color: '#2563EB', border: '1px solid rgba(37, 99, 235, 0.2)'}}>แบ่งขายแล้ว</span> : <span className="badge-available">พร้อมขาย</span>}
+                          {a.remaining_robux < a.robux_amount
+                            ? <span className="badge-available" style={{ background: "rgba(37, 99, 235, 0.1)", color: "#2563EB", border: "1px solid rgba(37, 99, 235, 0.2)" }}>แบ่งขายแล้ว</span>
+                            : <span className="badge-available">พร้อมขาย</span>}
                         </td>
                         <td style={tableCellStyle}>
-                          <div style={{ display: "flex", gap: 8 }}>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
                             {/* ปุ่มดูข้อมูลบัญชี (รูปกุญแจ) */}
-                            <button className="btn-ghost" style={{ padding: "6px 8px" }} onClick={() => { 
-                              setShowAccountModal(a); 
-                              setEditUsername(a.username || ""); 
+                            <button className="btn-ghost" style={{ padding: "6px 8px" }} onClick={() => {
+                              setShowAccountModal(a);
+                              setEditUsername(a.username || "");
                               setEditPassword(a.password || "");
                               setShowPassword(false);
                             }}>
                               <Key size={13} style={{ color: (a.username || a.password) ? "var(--text-primary)" : "var(--text-muted)" }} />
                             </button>
-                            <button className="btn-success" onClick={() => { 
+                            <button className="btn-success" onClick={() => {
                               const rate = settings.sell_rate;
                               const robux = a.remaining_robux;
                               setShowSellModal(a);
                               setSellRate(String(rate));
                               setSellRobuxAmount(String(robux));
                               setSellPrice(rate > 0 ? (robux / rate).toFixed(2) : "");
-                              setCustomerName(""); 
+                              setCustomerName("");
                             }}><CheckCircle size={11} /> ขาย</button>
+                            {/* ปุ่ม ปิด (Inactive) สำหรับบัญชีที่เหลือ 3–6 Robux */}
+                            {a.remaining_robux >= 3 && a.remaining_robux <= 6 && (
+                              <button className="btn-ghost" style={{ fontSize: 11, padding: "6px 10px", color: "var(--text-muted)" }}
+                                onClick={() => handleMarkInactive(a)} title="ปิดบัญชีนี้ (Inactive)">
+                                <EyeOff size={11} /> ปิด
+                              </button>
+                            )}
+                            {/* ปุ่ม Report Ban */}
+                            <button className="btn-ban" onClick={() => handleReportBan(a)} title="Report Ban — ตัดยอดเป็น 0 และบันทึกขาดทุน">
+                              <ShieldOff size={11} /> Ban
+                            </button>
                             <button className="btn-danger" onClick={() => handleDeleteInventory(a.id)}><Trash2 size={11} /></button>
                           </div>
                         </td>
@@ -644,6 +684,65 @@ export default function Dashboard() {
                     ))}
                   </tbody>
                 </table>
+                </div>
+              </div>
+            )}
+
+            {/* Closed / Banned Accounts */}
+            {closedAccounts.length > 0 && (
+              <div style={{ marginTop: 32 }}>
+                <h3 style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 12, letterSpacing: "0.06em" }}>
+                  CLOSED / BANNED ({closedAccounts.length})
+                </h3>
+                <div style={tableShellStyle}>
+                  <div style={tableViewportStyle}>
+                  <table style={{ ...tableStyle, minWidth: 720 }}>
+                    <thead>
+                      <tr style={tableHeaderRowStyle}>
+                        {["วันที่", "บัญชี (Username)", "Robux ที่หายไป", "สถานะ", "Loss / 損 (ขาดทุน)"].map((h) => (
+                          <th key={h} style={tableHeaderCellStyle}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {closedAccounts.map((a, i) => (
+                        <tr key={a.id} style={{ background: i % 2 === 0 ? "var(--bg-card)" : "rgba(225,29,72,0.025)" }}>
+                          <td style={{ ...tableCellStyle, fontSize: 12, color: "var(--text-muted)" }}>{new Date(a.created_at).toLocaleDateString("th-TH")}</td>
+                          <td style={tableCellStyle}>
+                            {a.username
+                              ? <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{a.username}</span>
+                              : <span style={{ fontSize: 12, color: "var(--text-muted)" }}>—</span>}
+                          </td>
+                          <td style={tableCellStyle}>
+                            {(() => {
+                              // ใช้ remaining_robux ถ้ายังมีค่า, ไม่งั้น back-calculate จาก loss_thb (กรณีข้อมูลเก่าที่ถูก zero ไปแล้ว)
+                              const lost = a.remaining_robux > 0
+                                ? a.remaining_robux
+                                : a.status === "banned" && (a.loss_thb ?? 0) > 0
+                                  ? Math.round((a.loss_thb! * 1000) / (a.usdt_cost * a.binance_rate))
+                                  : 0;
+                              return (
+                                <span className="num" style={{ fontSize: 13, color: "var(--text-muted)", textDecoration: "line-through" }}>
+                                  {fmtRobux(lost)}
+                                </span>
+                              );
+                            })()}
+                          </td>
+                          <td style={tableCellStyle}>
+                            {a.status === "banned"
+                              ? <span className="badge-banned">BANNED</span>
+                              : <span className="badge-inactive">Inactive</span>}
+                          </td>
+                          <td style={tableCellStyle}>
+                            {a.status === "banned" && (a.loss_thb ?? 0) > 0
+                              ? <span className="num" style={{ fontSize: 13, color: "var(--accent-red)", fontWeight: 700 }}>-{fmtTHB(a.loss_thb!)}</span>
+                              : <span style={{ fontSize: 12, color: "var(--text-muted)" }}>—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
                 </div>
               </div>
             )}
@@ -682,9 +781,21 @@ export default function Dashboard() {
                   <p className="num" style={{ color: "var(--accent-gold)", fontSize: 15 }}>{fmtTHB(sales.reduce((s, a) => s + a.selling_price_thb, 0))}</p>
                 </div>
                 <div>
-                  <p className="label" style={{ marginBottom: 2 }}>กำไรสุทธิ</p>
+                  <p className="label" style={{ marginBottom: 2 }}>กำไรจากการขาย</p>
                   <p className="num" style={{ color: totalNetProfit >= 0 ? "var(--accent-green)" : "var(--accent-red)", fontSize: 15 }}>{fmtTHB(totalNetProfit)}</p>
                 </div>
+                {totalLossFromBans > 0 && (
+                  <div>
+                    <p className="label" style={{ marginBottom: 2 }}>Loss/損 (Ban)</p>
+                    <p className="num" style={{ color: "var(--accent-red)", fontSize: 15 }}>-{fmtTHB(totalLossFromBans)}</p>
+                  </div>
+                )}
+                {totalLossFromBans > 0 && (
+                  <div>
+                    <p className="label" style={{ marginBottom: 2 }}>กำไรหักความเสี่ยง</p>
+                    <p className="num" style={{ color: realNetProfit >= 0 ? "var(--accent-green)" : "var(--accent-red)", fontSize: 15, fontWeight: 700 }}>{fmtTHB(realNetProfit)}</p>
+                  </div>
+                )}
               </div>
               </div>
             </div>

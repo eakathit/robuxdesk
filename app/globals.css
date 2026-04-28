@@ -224,6 +224,46 @@ select.input-base { cursor: pointer; }
   border-radius: 99px;
   display: inline-block;
 }
+.badge-banned {
+  background: rgba(225, 29, 72, 0.12);
+  color: #E11D48;
+  border: 1px solid rgba(225, 29, 72, 0.3);
+  font-family: var(--font-thai), 'Noto Sans Thai', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 99px;
+  display: inline-block;
+  letter-spacing: 0.06em;
+}
+.badge-inactive {
+  background: rgba(144, 144, 184, 0.1);
+  color: var(--text-muted);
+  border: 1px solid rgba(144, 144, 184, 0.25);
+  font-family: var(--font-thai), 'Noto Sans Thai', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 99px;
+  display: inline-block;
+}
+.btn-ban {
+  background: rgba(225, 29, 72, 0.07);
+  color: #E11D48;
+  border: 1.5px solid rgba(225, 29, 72, 0.22);
+  font-family: var(--font-thai), 'Noto Sans Thai', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  letter-spacing: 0.03em;
+}
+.btn-ban:hover { background: rgba(225, 29, 72, 0.15); border-color: rgba(225, 29, 72, 0.4); }
 
 /* ── Divider ───────────────────────────────────────────── */
 .divider { border: none; border-top: 1px solid var(--border); }
