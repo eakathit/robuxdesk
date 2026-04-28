@@ -1,12 +1,14 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect, useCallback } from "react";
 import {
   Wallet, Package, TrendingUp, Plus, DollarSign,
-  Activity, ChevronRight, X, CheckCircle, Trash2,
+  Activity, ChevronLeft, ChevronRight, X, CheckCircle, Trash2,
   BarChart3, ArrowUpRight, ArrowDownRight, Coins, RefreshCw, LogOut,
   Key, Copy, Save, Globe, ShieldCheck, ShieldOff, EyeOff // <-- เพิ่มไอคอนใหม่
 } from "lucide-react";
+import { Layers } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
@@ -18,6 +20,16 @@ interface WalletEntry {
   usdt_received: number;
   binance_rate: number;
   note?: string;
+}
+
+interface PurchaseBatch {
+  id: string;
+  created_at: string;
+  name: string;
+  source?: string | null;
+  purchase_date?: string | null;
+  buy_rate_note?: string | null;
+  note?: string | null;
 }
 
 interface InventoryItem {
@@ -34,6 +46,8 @@ interface InventoryItem {
   username?: string;
   password?: string;
   loss_thb?: number;
+  purchase_batch_id?: string | null;
+  purchase_batch?: PurchaseBatch | null;
 }
 
 interface SaleItem {
@@ -59,6 +73,13 @@ function fmt(n: number, decimals = 2) {
 }
 function fmtTHB(n: number) { return "฿" + fmt(n, 2); }
 function fmtRobux(n: number) { return n.toLocaleString("en-US") + " R$"; }
+function todayInputValue() {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().slice(0, 10);
+}
+
+const SALES_PER_PAGE = 10;
 
 // ── Modal & UI Components ──────────────────────────────────────────────────
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -127,10 +148,12 @@ export default function Dashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [wallets, setWallets] = useState<WalletEntry[]>([]);
+  const [purchaseBatches, setPurchaseBatches] = useState<PurchaseBatch[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [sales, setSales] = useState<SaleItem[]>([]);
   const [settings, setSettings] = useState<Settings>({ buy_rate: 36.5, sell_rate: 5.0 });
-  const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "inventory" | "sales">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "inventory" | "batches" | "sales">("overview");
+  const [salesPage, setSalesPage] = useState(1);
 
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
@@ -147,7 +170,9 @@ export default function Dashboard() {
   const [copiedField, setCopiedField] = useState<"username" | "password" | null>(null);
 
   const [wForm, setWForm] = useState({ thbAmount: "", usdtReceived: "", note: "" });
-  const [iForm, setIForm] = useState({ robuxAmount: "", usdtCost: "", vndRate: "", username: "", password: "" });
+  const [iForm, setIForm] = useState({ robuxAmount: "", usdtCost: "", vndRate: "", username: "", password: "", purchaseBatchId: "" });
+  const [createBatchInline, setCreateBatchInline] = useState(false);
+  const [batchForm, setBatchForm] = useState({ name: "", source: "TopupVN", purchaseDate: todayInputValue(), buyRateNote: "", note: "" });
   const [sellPrice, setSellPrice] = useState("");
   const [sellRobuxAmount, setSellRobuxAmount] = useState(""); 
   const [customerName, setCustomerName] = useState("");
@@ -159,15 +184,22 @@ export default function Dashboard() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [w, inv, s, cfg] = await Promise.all([
+      const [w, invWithBatch, batchResult, s, cfg] = await Promise.all([
         supabase.from("wallets").select("*").order("created_at", { ascending: false }),
-        supabase.from("inventory").select("*").order("created_at", { ascending: false }),
+        supabase.from("inventory").select("*, purchase_batch:purchase_batches(*)").order("created_at", { ascending: false }),
+        supabase.from("purchase_batches").select("*").order("purchase_date", { ascending: false }).order("created_at", { ascending: false }),
         supabase.from("sales").select("*, inventory(*)").order("created_at", { ascending: false }),
         supabase.from("app_settings").select("*"),
       ]);
 
       if (w.data) setWallets(w.data);
-      if (inv.data) setInventory(inv.data);
+      if (invWithBatch.data) {
+        setInventory(invWithBatch.data as InventoryItem[]);
+      } else {
+        const invFallback = await supabase.from("inventory").select("*").order("created_at", { ascending: false });
+        if (invFallback.data) setInventory(invFallback.data as InventoryItem[]);
+      }
+      if (batchResult.data) setPurchaseBatches(batchResult.data as PurchaseBatch[]);
       if (s.data) setSales(s.data as SaleItem[]);
       if (cfg.data) {
         const s: Settings = { buy_rate: 36.5, sell_rate: 5.0 };
@@ -199,6 +231,41 @@ export default function Dashboard() {
   const totalNetProfit = sales.reduce((s, a) => s + (a.net_profit ?? 0), 0);
   const totalLossFromBans = inventory.filter((a) => a.status === "banned").reduce((s, a) => s + (a.loss_thb ?? 0), 0);
   const realNetProfit = totalNetProfit - totalLossFromBans;
+  const salesPageCount = Math.max(1, Math.ceil(sales.length / SALES_PER_PAGE));
+  const currentSalesPage = Math.min(salesPage, salesPageCount);
+  const salesStartIndex = (currentSalesPage - 1) * SALES_PER_PAGE;
+  const paginatedSales = sales.slice(salesStartIndex, salesStartIndex + SALES_PER_PAGE);
+  const salesVisiblePages = Array.from({ length: salesPageCount }, (_, index) => index + 1).filter((page) => {
+    return page === 1 || page === salesPageCount || Math.abs(page - currentSalesPage) <= 1;
+  });
+  const batchSummaries = purchaseBatches.map((batch) => {
+    const batchInventory = inventory.filter((item) => item.purchase_batch_id === batch.id);
+    const batchSales = sales.filter((sale) => sale.inventory?.purchase_batch_id === batch.id);
+    const robuxTotal = batchInventory.reduce((sum, item) => sum + (item.robux_amount || 0), 0);
+    const robuxRemaining = batchInventory.reduce((sum, item) => sum + (item.remaining_robux || 0), 0);
+    const costUSDT = batchInventory.reduce((sum, item) => sum + (item.usdt_cost || 0), 0);
+    const costTHB = batchInventory.reduce((sum, item) => sum + (item.usdt_cost || 0) * (item.binance_rate || 0), 0);
+    const revenueTHB = batchSales.reduce((sum, sale) => sum + (sale.selling_price_thb || 0), 0);
+    const profitTHB = batchSales.reduce((sum, sale) => sum + (sale.net_profit || 0), 0);
+    const lossTHB = batchInventory.filter((item) => item.status === "banned").reduce((sum, item) => sum + (item.loss_thb || 0), 0);
+    return {
+      batch,
+      accountCount: batchInventory.length,
+      robuxTotal,
+      robuxRemaining,
+      costUSDT,
+      costTHB,
+      revenueTHB,
+      profitTHB,
+      lossTHB,
+      realProfitTHB: profitTHB - lossTHB,
+      soldPercent: robuxTotal > 0 ? ((robuxTotal - robuxRemaining) / robuxTotal) * 100 : 0,
+    };
+  });
+
+  useEffect(() => {
+    setSalesPage((page) => Math.min(page, Math.max(1, Math.ceil(sales.length / SALES_PER_PAGE))));
+  }, [sales.length]);
 
   // ── Handlers ───────────────────────────────────────────────────────────
   async function handleWalletSubmit() {
@@ -218,10 +285,33 @@ export default function Dashboard() {
     const usdt = parseFloat(iForm.usdtCost);
     const vnd = parseFloat(iForm.vndRate) || 0;
     if (!robux || !usdt || robux <= 0 || usdt <= 0) return;
+    if (createBatchInline && !batchForm.name.trim()) return;
     const unitCost = (usdt * avgBinanceRate) / robux;
     setSubmitting(true);
-    
-    await supabase.from("inventory").insert({
+
+    let purchaseBatchId = iForm.purchaseBatchId || null;
+    if (createBatchInline) {
+      const { data: newBatch, error: batchErr } = await supabase
+        .from("purchase_batches")
+        .insert({
+          name: batchForm.name.trim(),
+          source: batchForm.source.trim() || null,
+          purchase_date: batchForm.purchaseDate || todayInputValue(),
+          buy_rate_note: batchForm.buyRateNote.trim() || null,
+          note: batchForm.note.trim() || null,
+        })
+        .select()
+        .single();
+
+      if (batchErr || !newBatch) {
+        alert(`สร้างรอบซื้อไม่สำเร็จ: ${batchErr?.message || "ไม่พบข้อมูลรอบซื้อ"}`);
+        setSubmitting(false);
+        return;
+      }
+      purchaseBatchId = newBatch.id;
+    }
+
+    const inventoryPayload: Record<string, string | number | null> = {
       robux_amount: robux,
       remaining_robux: robux, 
       usdt_cost: usdt,
@@ -230,9 +320,20 @@ export default function Dashboard() {
       unit_cost_thb: unitCost,
       username: iForm.username || null,
       password: iForm.password || null,
-    });
+    };
+    if (purchaseBatchId) inventoryPayload.purchase_batch_id = purchaseBatchId;
+
+    const { error: invErr } = await supabase.from("inventory").insert(inventoryPayload);
+
+    if (invErr) {
+      alert(`เพิ่มบัญชีไม่สำเร็จ: ${invErr.message}`);
+      setSubmitting(false);
+      return;
+    }
     
-    setIForm({ robuxAmount: "", usdtCost: "", vndRate: "", username: "", password: "" });
+    setIForm({ robuxAmount: "", usdtCost: "", vndRate: "", username: "", password: "", purchaseBatchId: "" });
+    setCreateBatchInline(false);
+    setBatchForm({ name: "", source: "TopupVN", purchaseDate: todayInputValue(), buyRateNote: "", note: "" });
     setShowInventoryModal(false);
     setSubmitting(false);
     fetchAll();
@@ -399,14 +500,15 @@ export default function Dashboard() {
     { id: "overview", label: "Overview", icon: <BarChart3 size={14} /> },
     { id: "wallet", label: "Wallet", icon: <Wallet size={14} /> },
     { id: "inventory", label: "Inventory", icon: <Package size={14} /> },
+    { id: "batches", label: "Batches", icon: <Layers size={14} /> },
     { id: "sales", label: "Sales", icon: <TrendingUp size={14} /> },
   ] as const;
 
   const tableShellStyle = {
     background: "var(--bg-card)",
     border: "1px solid var(--border)",
-    borderRadius: 20,
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)",
+    borderRadius: 14,
+    boxShadow: "0 12px 32px rgba(54, 35, 112, 0.08)",
     overflow: "hidden",
   } as const;
 
@@ -422,7 +524,7 @@ export default function Dashboard() {
   } as const;
 
   const tableHeaderRowStyle = {
-    background: "var(--bg-elevated)",
+    background: "linear-gradient(180deg, #F7F2FF, #F2F0FA)",
   } as const;
 
   const tableHeaderCellStyle = {
@@ -450,14 +552,16 @@ export default function Dashboard() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-base)" }}>
       {/* Header */}
-      <header style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-card)", position: "sticky", top: 0, zIndex: 40 }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <header style={{ borderBottom: "1px solid rgba(109, 73, 176, 0.14)", background: "rgba(255,255,255,0.78)", backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)", position: "sticky", top: 0, zIndex: 40 }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", height: 64, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #7C3AED, #5B21B6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Coins size={16} color="#0D0020" />
+            <div style={{ width: 38, height: 38, borderRadius: 12, background: "linear-gradient(135deg, #F9E9FF, #FFFFFF)", border: "1px solid rgba(124, 58, 237, 0.18)", boxShadow: "0 8px 24px rgba(124,58,237,0.16)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Image src="/xtrabux-mascot.webp" alt="XtraBux mascot" width={38} height={38} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
-            <span style={{ fontWeight: 800, fontSize: 15, color: "var(--text-primary)" }}>ROBUX</span>
-            <span style={{ fontWeight: 800, fontSize: 15, color: "var(--accent-gold)" }}>DESK</span>
+            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
+              <span style={{ fontWeight: 900, fontSize: 18, color: "var(--text-primary)" }}>Xtra<span style={{ color: "var(--accent-gold)" }}>Bux</span></span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Gift Pass Desk</span>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const, justifyContent: "flex-end" }}>
             {quickLinks.map((link) => {
@@ -487,22 +591,59 @@ export default function Dashboard() {
       </header>
 
       {/* Main */}
-      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
+      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 24px 48px" }}>
+        <section className="brand-hero animate-fade-up">
+          <div className="brand-hero-copy">
+            <div className="brand-kicker"><Coins size={13} /> XtraBux operations</div>
+            <h1>XtraBux Control Center</h1>
+            <p>{fmtRobux(totalRobuxStock)} พร้อมขาย · {availableAccounts.length} บัญชีมีสต็อก · กำไรหักความเสี่ยง {fmtTHB(realNetProfit)}</p>
+            <div className="hero-actions">
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  const rate = settings.sell_rate;
+                  const firstAcc = availableAccounts[0];
+                  const robux = firstAcc?.remaining_robux ?? 0;
+                  setPickerAccountId(firstAcc?.id ?? "");
+                  setSellRate(String(rate));
+                  setSellRobuxAmount(firstAcc ? String(robux) : "");
+                  setSellPrice(firstAcc && rate > 0 ? (robux / rate).toFixed(2) : "");
+                  setCustomerName("");
+                  setShowSalePickerModal(true);
+                }}
+                disabled={availableAccounts.length === 0}
+              >
+                <Plus size={14} /> บันทึกการขาย
+              </button>
+              <button className="btn-ghost" onClick={() => setActiveTab("inventory")}>
+                <Package size={14} /> ดูสต็อก
+              </button>
+            </div>
+          </div>
+          <div className="brand-hero-panel">
+            <Image src="/xtrabux-mascot.webp" alt="XtraBux mascot" width={112} height={112} className="hero-mascot" priority />
+            <div className="hero-rate-grid">
+              <RateBadge label="Buy Rate" value={fmt(settings.buy_rate, 2)} unit="THB / USDT" color="var(--accent-gold)" />
+              <RateBadge label="Sell Rate" value={fmt(settings.sell_rate, 1)} unit="R$ per THB" color="var(--accent-cyan)" />
+              <RateBadge label="Avg Binance" value={fmt(avgBinanceRate, 4)} unit="weighted" color="var(--accent-blue)" />
+            </div>
+          </div>
+        </section>
         {/* Rate Badges & Stat Cards & Tabs เหมือนเดิม... */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" as const }}>
+        <div style={{ display: "none", gap: 12, marginBottom: 28, flexWrap: "wrap" as const }}>
           <RateBadge label="Buy Rate" value={fmt(settings.buy_rate, 2)} unit="THB / USDT" color="var(--accent-gold)" />
           <RateBadge label="Sell Rate" value={fmt(settings.sell_rate, 1)} unit="R$ per THB" color="var(--accent-cyan)" />
           <RateBadge label="Avg Binance Rate" value={fmt(avgBinanceRate, 4)} unit="THB / USDT (weighted)" color="var(--accent-blue)" />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 16, marginBottom: 32 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 16, marginBottom: 24 }}>
           <StatCard icon={<DollarSign size={18} />} label="ลงทุนทั้งหมด" value={fmtTHB(totalInvestmentTHB)} sub={`${inventory.length} บัญชีทั้งหมด`} accent="gold" />
           <StatCard icon={<Package size={18} />} label="Robux คงเหลือ" value={fmtRobux(totalRobuxStock)} sub={`${availableAccounts.length} บัญชีมีสต็อก`} accent="blue" />
           <StatCard icon={<ShieldOff size={18} />} label="Loss / 損 (ขาดทุน)" value={totalLossFromBans > 0 ? `-${fmtTHB(totalLossFromBans)}` : fmtTHB(0)} sub={`${inventory.filter(a => a.status === "banned").length} บัญชีโดน Ban`} accent="red" />
           <StatCard icon={<TrendingUp size={18} />} label="กำไรสุทธิ (หักความเสี่ยง)" value={fmtTHB(realNetProfit)} sub={`${sales.length} รายการขาย`} accent={realNetProfit >= 0 ? "green" : "red"} />
         </div>
 
-        <div style={{ display: "flex", gap: 6, marginBottom: 24, padding: 4, background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border)", width: "fit-content" }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 24, padding: 4, background: "rgba(255,255,255,0.82)", borderRadius: 12, border: "1px solid var(--border)", width: "fit-content", boxShadow: "0 10px 30px rgba(54, 35, 112, 0.08)" }}>
           {tabs.map((t) => (
             <button key={t.id} onClick={() => setActiveTab(t.id)} style={{ fontWeight: 600, fontSize: 12, letterSpacing: "0.04em", padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.15s", background: activeTab === t.id ? "var(--bg-elevated)" : "transparent", color: activeTab === t.id ? "var(--accent-gold)" : "var(--text-muted)" }}>
               {t.icon}{t.label}
@@ -618,10 +759,10 @@ export default function Dashboard() {
             ) : (
               <div style={tableShellStyle}>
                 <div style={tableViewportStyle}>
-                <table style={{ ...tableStyle, minWidth: 1060 }}>
+                <table style={{ ...tableStyle, minWidth: 1180 }}>
                   <thead>
                     <tr style={tableHeaderRowStyle}>
-                      {["วันที่", "บัญชี (Username)", "คงเหลือ / รวม", "ต้นทุน USDT", "เรต Binance", "สถานะ", "จัดการ"].map((h) => (
+                      {["วันที่", "บัญชี (Username)", "รอบซื้อ", "คงเหลือ / รวม", "ต้นทุน USDT", "เรต Binance", "สถานะ", "จัดการ"].map((h) => (
                         <th key={h} style={tableHeaderCellStyle}>{h}</th>
                       ))}
                     </tr>
@@ -634,6 +775,11 @@ export default function Dashboard() {
                           {a.username
                             ? <span style={{ fontSize: 13, color: "var(--text-primary)" }}>{a.username}</span>
                             : <span style={{ fontSize: 12, color: "var(--text-muted)" }}>—</span>}
+                        </td>
+                        <td style={tableCellStyle}>
+                          {a.purchase_batch
+                            ? <span className="batch-chip">{a.purchase_batch.name}</span>
+                            : <span style={{ fontSize: 12, color: "var(--text-muted)" }}>ไม่ระบุ</span>}
                         </td>
                         <td style={tableCellStyle}>
                           <span className="num" style={{ fontSize: 14, color: "var(--accent-gold)" }}>{fmtRobux(a.remaining_robux)}</span>
@@ -749,6 +895,72 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* ── BATCHES ── */}
+        {activeTab === "batches" && (
+          <div className="animate-fade-up">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, gap: 12, flexWrap: "wrap" as const }}>
+              <div>
+                <h2 className="section-title">Purchase Batches — รอบซื้อไอดี</h2>
+                <p style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>สรุป performance ของแต่ละรอบซื้อ โดยไม่เปลี่ยน flow ขายเดิม</p>
+              </div>
+              <button className="btn-primary" onClick={() => { setActiveTab("inventory"); setShowInventoryModal(true); }}>
+                <Plus size={14} /> เพิ่มบัญชีเข้ารอบซื้อ
+              </button>
+            </div>
+
+            {purchaseBatches.length === 0 ? (
+              <div className="card" style={{ padding: 48, textAlign: "center" }}>
+                <Layers size={32} style={{ color: "var(--text-muted)", margin: "0 auto 12px" }} />
+                <p style={{ color: "var(--text-primary)", fontSize: 15, fontWeight: 700 }}>ยังไม่มีรอบซื้อ</p>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>สร้างรอบซื้อได้จาก modal เพิ่มบัญชี โดย flow เดิมยังใช้ได้เหมือนเดิม</p>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+                {batchSummaries.map((summary) => (
+                  <div key={summary.batch.id} className="card batch-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 16 }}>
+                      <div>
+                        <p style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>{summary.batch.name}</p>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 8 }}>
+                          {summary.batch.source && <span className="batch-chip">{summary.batch.source}</span>}
+                          {summary.batch.buy_rate_note && <span className="batch-chip muted">{summary.batch.buy_rate_note}</span>}
+                        </div>
+                      </div>
+                      <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap" }}>
+                        {summary.batch.purchase_date ? new Date(summary.batch.purchase_date).toLocaleDateString("th-TH") : "-"}
+                      </span>
+                    </div>
+
+                    <div className="batch-progress">
+                      <div style={{ width: `${Math.min(100, Math.max(0, summary.soldPercent))}%` }} />
+                    </div>
+                    <p style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>ขายแล้ว {fmt(summary.soldPercent, 1)}%</p>
+
+                    <div className="batch-metrics">
+                      <div><span>บัญชี</span><strong>{summary.accountCount}</strong></div>
+                      <div><span>Robux รวม</span><strong>{fmtRobux(summary.robuxTotal)}</strong></div>
+                      <div><span>คงเหลือ</span><strong>{fmtRobux(summary.robuxRemaining)}</strong></div>
+                      <div><span>ทุน USDT</span><strong>${fmt(summary.costUSDT)}</strong></div>
+                      <div><span>ทุน THB</span><strong>{fmtTHB(summary.costTHB)}</strong></div>
+                      <div><span>ยอดขาย</span><strong>{fmtTHB(summary.revenueTHB)}</strong></div>
+                      <div><span>กำไรขาย</span><strong style={{ color: summary.profitTHB >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>{fmtTHB(summary.profitTHB)}</strong></div>
+                      <div><span>Ban Loss</span><strong style={{ color: summary.lossTHB > 0 ? "var(--accent-red)" : "var(--text-primary)" }}>{summary.lossTHB > 0 ? `-${fmtTHB(summary.lossTHB)}` : fmtTHB(0)}</strong></div>
+                    </div>
+
+                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "var(--text-muted)", fontSize: 12 }}>กำไรหักความเสี่ยง</span>
+                      <span className="num" style={{ color: summary.realProfitTHB >= 0 ? "var(--accent-green)" : "var(--accent-red)", fontSize: 18, fontWeight: 800 }}>
+                        {fmtTHB(summary.realProfitTHB)}
+                      </span>
+                    </div>
+                    {summary.batch.note && <p style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 10 }}>{summary.batch.note}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── SALES ── */}
         {activeTab === "sales" && (
            // โค้ด Sales
@@ -816,7 +1028,7 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sales.map((s, i) => {
+                    {paginatedSales.map((s, i) => {
                       const margin = s.selling_price_thb > 0 ? (s.net_profit / s.selling_price_thb) * 100 : 0;
                       return (
                         <tr key={s.id} style={{ background: i % 2 === 0 ? "var(--bg-card)" : "rgba(124, 58, 237, 0.035)" }}>
@@ -833,6 +1045,48 @@ export default function Dashboard() {
                   </tbody>
                 </table>
                 </div>
+                {sales.length > SALES_PER_PAGE && (
+                  <div className="pagination-bar">
+                    <div className="pagination-summary">
+                      แสดง {salesStartIndex + 1}-{Math.min(salesStartIndex + SALES_PER_PAGE, sales.length)} จาก {sales.length} รายการ
+                    </div>
+                    <div className="pagination-controls">
+                      <button
+                        className="pagination-btn"
+                        onClick={() => setSalesPage((page) => Math.max(1, page - 1))}
+                        disabled={currentSalesPage === 1}
+                        title="หน้าก่อนหน้า"
+                      >
+                        <ChevronLeft size={14} /> ย้อนกลับ
+                      </button>
+                      <div className="pagination-pages">
+                        {salesVisiblePages.map((page, index) => {
+                          const prev = salesVisiblePages[index - 1];
+                          return (
+                            <span key={page} className="pagination-page-wrap">
+                              {prev && page - prev > 1 && <span className="pagination-ellipsis">...</span>}
+                              <button
+                                className={`pagination-page ${currentSalesPage === page ? "is-active" : ""}`}
+                                onClick={() => setSalesPage(page)}
+                                aria-current={currentSalesPage === page ? "page" : undefined}
+                              >
+                                {page}
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                      <button
+                        className="pagination-btn"
+                        onClick={() => setSalesPage((page) => Math.min(salesPageCount, page + 1))}
+                        disabled={currentSalesPage === salesPageCount}
+                        title="หน้าถัดไป"
+                      >
+                        ถัดไป <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -917,6 +1171,53 @@ export default function Dashboard() {
         <Modal title="เพิ่มบัญชี Robux" onClose={() => setShowInventoryModal(false)}>
           <Field label="จำนวน Robux"><input className="input-base" type="number" placeholder="เช่น 10000" value={iForm.robuxAmount} onChange={(e) => setIForm((f) => ({ ...f, robuxAmount: e.target.value }))} /></Field>
           <Field label="ต้นทุน USDT"><input className="input-base" type="number" placeholder="เช่น 1.75" value={iForm.usdtCost} onChange={(e) => setIForm((f) => ({ ...f, usdtCost: e.target.value }))} /></Field>
+          <Field label="รอบซื้อ (ไม่บังคับ)">
+            <select
+              className="input-base"
+              value={createBatchInline ? "__new__" : iForm.purchaseBatchId}
+              onChange={(e) => {
+                if (e.target.value === "__new__") {
+                  setCreateBatchInline(true);
+                  setIForm((f) => ({ ...f, purchaseBatchId: "" }));
+                } else {
+                  setCreateBatchInline(false);
+                  setIForm((f) => ({ ...f, purchaseBatchId: e.target.value }));
+                }
+              }}
+            >
+              <option value="">ไม่ระบุรอบซื้อ</option>
+              {purchaseBatches.map((batch) => (
+                <option key={batch.id} value={batch.id}>{batch.name}</option>
+              ))}
+              <option value="__new__">+ สร้างรอบซื้อใหม่</option>
+            </select>
+          </Field>
+
+          {createBatchInline && (
+            <div className="batch-inline-form">
+              <Field label="ชื่อรอบซื้อ">
+                <input className="input-base" placeholder="เช่น TopupVN 29/04 รอบเย็น" value={batchForm.name} onChange={(e) => setBatchForm((f) => ({ ...f, name: e.target.value }))} />
+              </Field>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="เว็บที่ซื้อ">
+                  <input className="input-base" list="batch-source-list" placeholder="TopupVN" value={batchForm.source} onChange={(e) => setBatchForm((f) => ({ ...f, source: e.target.value }))} />
+                  <datalist id="batch-source-list">
+                    <option value="TopupVN" />
+                    <option value="RbxLegit" />
+                  </datalist>
+                </Field>
+                <Field label="วันที่ซื้อ">
+                  <input className="input-base" type="date" value={batchForm.purchaseDate} onChange={(e) => setBatchForm((f) => ({ ...f, purchaseDate: e.target.value }))} />
+                </Field>
+              </div>
+              <Field label="เรตซื้อ / หมายเหตุสั้น">
+                <input className="input-base" placeholder="เช่น เรต 8" value={batchForm.buyRateNote} onChange={(e) => setBatchForm((f) => ({ ...f, buyRateNote: e.target.value }))} />
+              </Field>
+              <Field label="Note (ไม่บังคับ)">
+                <input className="input-base" placeholder="เช่น ล็อตโปร / รอบเช้า" value={batchForm.note} onChange={(e) => setBatchForm((f) => ({ ...f, note: e.target.value }))} />
+              </Field>
+            </div>
+          )}
           
           <Field label="Username (ไม่บังคับ)">
             <input
@@ -935,7 +1236,7 @@ export default function Dashboard() {
             />
           </Field>
           
-          <button className="btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={handleInventorySubmit} disabled={submitting || !iForm.robuxAmount || !iForm.usdtCost}>
+          <button className="btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={handleInventorySubmit} disabled={submitting || !iForm.robuxAmount || !iForm.usdtCost || (createBatchInline && !batchForm.name.trim())}>
             {submitting ? "กำลังบันทึก..." : <><Plus size={14} /> เพิ่มบัญชี</>}
           </button>
         </Modal>

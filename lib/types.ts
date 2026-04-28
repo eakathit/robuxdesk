@@ -9,6 +9,16 @@ export interface WalletEntry {
   note?: string;
 }
 
+export interface PurchaseBatch {
+  id: string;
+  createdAt: string;
+  name: string;
+  source?: string;
+  purchaseDate?: string;
+  buyRateNote?: string;
+  note?: string;
+}
+
 export interface RobuxAccount {
   id: string;
   createdAt: string;
@@ -24,6 +34,8 @@ export interface RobuxAccount {
   netProfit?: number;
   username?: string;
   password?: string;
+  purchaseBatchId?: string;
+  purchaseBatch?: PurchaseBatch;
 }
 
 export interface SaleRecord {

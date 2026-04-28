@@ -10,8 +10,8 @@ const notoSansThai = Noto_Sans_Thai({
 });
 
 export const metadata: Metadata = {
-  title: "RobuxDesk",
-  description: "Robux Business Management Dashboard",
+  title: "XtraBux",
+  description: "XtraBux Gift Pass business dashboard",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
