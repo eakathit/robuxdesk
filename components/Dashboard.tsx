@@ -666,8 +666,8 @@ export default function Dashboard() {
                               setSellPrice(rate > 0 ? (robux / rate).toFixed(2) : "");
                               setCustomerName("");
                             }}><CheckCircle size={11} /> ขาย</button>
-                            {/* ปุ่ม ปิด (Inactive) สำหรับบัญชีที่เหลือ 3–6 Robux */}
-                            {a.remaining_robux >= 3 && a.remaining_robux <= 6 && (
+                            {/* ปุ่ม ปิด (Inactive) สำหรับบัญชีที่เหลือ ≤ 6 Robux */}
+                            {a.remaining_robux <= 6 && (
                               <button className="btn-ghost" style={{ fontSize: 11, padding: "6px 10px", color: "var(--text-muted)" }}
                                 onClick={() => handleMarkInactive(a)} title="ปิดบัญชีนี้ (Inactive)">
                                 <EyeOff size={11} /> ปิด
