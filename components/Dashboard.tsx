@@ -82,7 +82,7 @@ function todayInputValue() {
 }
 
 const SALES_PER_PAGE = 10;
-const RISK_ROBUX_THRESHOLD = 200;
+const RISK_ROBUX_THRESHOLD = 250;
 
 // ── Modal & UI Components ──────────────────────────────────────────────────
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
