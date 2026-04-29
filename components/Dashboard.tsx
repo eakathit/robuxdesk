@@ -9,6 +9,7 @@ import {
   Key, Copy, Save, Globe, ShieldCheck, ShieldOff, EyeOff // <-- เพิ่มไอคอนใหม่
 } from "lucide-react";
 import { Layers } from "lucide-react";
+import { Calculator } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
@@ -173,6 +174,7 @@ export default function Dashboard() {
   const [iForm, setIForm] = useState({ robuxAmount: "", usdtCost: "", vndRate: "", username: "", password: "", purchaseBatchId: "" });
   const [createBatchInline, setCreateBatchInline] = useState(false);
   const [batchForm, setBatchForm] = useState({ name: "", source: "TopupVN", purchaseDate: todayInputValue(), buyRateNote: "", note: "" });
+  const [rateCalcForm, setRateCalcForm] = useState({ robuxAmount: "1000", usdtPrice: "", thbRate: "", sellRate: "" });
   const [sellPrice, setSellPrice] = useState("");
   const [sellRobuxAmount, setSellRobuxAmount] = useState(""); 
   const [customerName, setCustomerName] = useState("");
@@ -223,6 +225,16 @@ export default function Dashboard() {
     const weighted = wallets.reduce((s, e) => s + e.binance_rate * e.thb_amount, 0);
     return totalTHB > 0 ? weighted / totalTHB : settings.buy_rate;
   })();
+  const calcRobuxAmount = parseFloat(rateCalcForm.robuxAmount);
+  const calcUsdtPrice = parseFloat(rateCalcForm.usdtPrice);
+  const calcThbRate = parseFloat(rateCalcForm.thbRate) || avgBinanceRate;
+  const calcSellRate = parseFloat(rateCalcForm.sellRate) || settings.sell_rate;
+  const calcUsdtPerThousand = calcRobuxAmount > 0 && calcUsdtPrice > 0 ? (calcUsdtPrice / calcRobuxAmount) * 1000 : 0;
+  const calcCostPerThousandTHB = calcUsdtPerThousand > 0 && calcThbRate > 0 ? calcUsdtPerThousand * calcThbRate : 0;
+  const calcBuyRate = calcCostPerThousandTHB > 0 ? 1000 / calcCostPerThousandTHB : 0;
+  const calcRevenuePerThousandTHB = calcSellRate > 0 ? 1000 / calcSellRate : 0;
+  const calcProfitPerThousandTHB = calcBuyRate > 0 ? calcRevenuePerThousandTHB - calcCostPerThousandTHB : 0;
+  const calcMarginPercent = calcRevenuePerThousandTHB > 0 ? (calcProfitPerThousandTHB / calcRevenuePerThousandTHB) * 100 : 0;
 
   const availableAccounts = inventory.filter((a) => a.status === "available" && a.remaining_robux > 0);
   const closedAccounts = inventory.filter((a) => a.status === "banned" || a.status === "inactive");
@@ -627,6 +639,40 @@ export default function Dashboard() {
               <RateBadge label="Sell Rate" value={fmt(settings.sell_rate, 1)} unit="R$ per THB" color="var(--accent-cyan)" />
               <RateBadge label="Avg Binance" value={fmt(avgBinanceRate, 4)} unit="weighted" color="var(--accent-blue)" />
             </div>
+          </div>
+        </section>
+        <section className="rate-calc-card animate-fade-up">
+          <div className="rate-calc-title">
+            <div>
+              <span><Calculator size={14} /> Rate Helper</span>
+              <p>คำนวณเรทที่ซื้อได้จากจำนวน Robux และราคา USDT ของไอดีนั้น</p>
+            </div>
+            <strong className="num">{calcBuyRate > 0 ? fmt(calcBuyRate, 2) : "--"} R$/THB</strong>
+          </div>
+          <div className="rate-calc-grid">
+            <label>
+              จำนวน Robux ของไอดี
+              <input className="input-base" type="number" placeholder="เช่น 500, 1500, 2000" value={rateCalcForm.robuxAmount} onChange={(e) => setRateCalcForm((f) => ({ ...f, robuxAmount: e.target.value }))} />
+            </label>
+            <label>
+              ราคา USDT ของไอดี
+              <input className="input-base" type="number" placeholder="เช่น 3.878" value={rateCalcForm.usdtPrice} onChange={(e) => setRateCalcForm((f) => ({ ...f, usdtPrice: e.target.value }))} />
+            </label>
+            <label>
+              เรทซื้อ USDT
+              <input className="input-base" type="number" placeholder={`เฉลี่ย ${fmt(avgBinanceRate, 4)}`} value={rateCalcForm.thbRate} onChange={(e) => setRateCalcForm((f) => ({ ...f, thbRate: e.target.value }))} />
+            </label>
+            <label>
+              เรทขายเป้าหมาย
+              <input className="input-base" type="number" placeholder={`เช่น ${fmt(settings.sell_rate, 1)}`} value={rateCalcForm.sellRate} onChange={(e) => setRateCalcForm((f) => ({ ...f, sellRate: e.target.value }))} />
+            </label>
+          </div>
+          <div className="rate-calc-results">
+            <div><span>ราคา / 1,000 R$</span><strong>{calcUsdtPerThousand > 0 ? `$${fmt(calcUsdtPerThousand, 4)}` : "--"}</strong></div>
+            <div><span>ต้นทุน / 1,000 R$</span><strong>{calcCostPerThousandTHB > 0 ? fmtTHB(calcCostPerThousandTHB) : "--"}</strong></div>
+            <div><span>รายรับที่เรทขาย</span><strong>{calcRevenuePerThousandTHB > 0 ? fmtTHB(calcRevenuePerThousandTHB) : "--"}</strong></div>
+            <div><span>กำไร / 1,000 R$</span><strong style={{ color: calcProfitPerThousandTHB >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>{calcBuyRate > 0 ? fmtTHB(calcProfitPerThousandTHB) : "--"}</strong></div>
+            <div><span>Margin</span><strong style={{ color: calcMarginPercent >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>{calcBuyRate > 0 ? `${fmt(calcMarginPercent, 1)}%` : "--"}</strong></div>
           </div>
         </section>
         {/* Rate Badges & Stat Cards & Tabs เหมือนเดิม... */}

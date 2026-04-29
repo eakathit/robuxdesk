@@ -444,6 +444,103 @@ select.input-base { cursor: pointer; }
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
+
+.rate-calc-card {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid rgba(139, 63, 242, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 12px 34px rgba(54, 35, 112, 0.08);
+}
+
+.rate-calc-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.rate-calc-title span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent-gold);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.rate-calc-title p {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.rate-calc-title strong {
+  color: var(--accent-gold);
+  font-size: 22px;
+  white-space: nowrap;
+}
+
+.rate-calc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rate-calc-grid label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rate-calc-grid input {
+  margin-top: 6px;
+}
+
+.rate-calc-results {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.rate-calc-results div {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(244, 238, 255, 0.58);
+}
+
+.rate-calc-results span,
+.rate-calc-results strong {
+  display: block;
+}
+
+.rate-calc-results span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.rate-calc-results strong {
+  margin-top: 3px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 860px) {
+  .rate-calc-grid,
+  .rate-calc-results {
+    grid-template-columns: 1fr;
+  }
+
+  .rate-calc-title {
+    flex-direction: column;
+  }
+}
 .btn-ban {
   background: rgba(225, 29, 72, 0.07);
   color: #E11D48;
