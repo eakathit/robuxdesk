@@ -16,3 +16,35 @@ create index if not exists idx_inventory_purchase_batch_id
 
 create index if not exists idx_purchase_batches_purchase_date
   on public.purchase_batches(purchase_date desc);
+
+alter table public.purchase_batches enable row level security;
+
+drop policy if exists "Authenticated users can read purchase batches" on public.purchase_batches;
+drop policy if exists "Authenticated users can insert purchase batches" on public.purchase_batches;
+drop policy if exists "Authenticated users can update purchase batches" on public.purchase_batches;
+drop policy if exists "Authenticated users can delete purchase batches" on public.purchase_batches;
+
+create policy "Authenticated users can read purchase batches"
+on public.purchase_batches
+for select
+to authenticated
+using (true);
+
+create policy "Authenticated users can insert purchase batches"
+on public.purchase_batches
+for insert
+to authenticated
+with check (true);
+
+create policy "Authenticated users can update purchase batches"
+on public.purchase_batches
+for update
+to authenticated
+using (true)
+with check (true);
+
+create policy "Authenticated users can delete purchase batches"
+on public.purchase_batches
+for delete
+to authenticated
+using (true);
