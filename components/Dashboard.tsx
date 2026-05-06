@@ -83,6 +83,12 @@ function todayInputValue() {
 
 const SALES_PER_PAGE = 10;
 const RISK_ROBUX_THRESHOLD = 250;
+const DEFAULT_BUY_RATE = 36.5;
+const DEFAULT_SELL_RATE = 6.5;
+
+function normalizeSellRate(rate: number) {
+  return rate === 5 ? DEFAULT_SELL_RATE : rate;
+}
 
 // ── Modal & UI Components ──────────────────────────────────────────────────
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -154,7 +160,7 @@ export default function Dashboard() {
   const [purchaseBatches, setPurchaseBatches] = useState<PurchaseBatch[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [sales, setSales] = useState<SaleItem[]>([]);
-  const [settings, setSettings] = useState<Settings>({ buy_rate: 36.5, sell_rate: 5.0 });
+  const [settings, setSettings] = useState<Settings>({ buy_rate: DEFAULT_BUY_RATE, sell_rate: DEFAULT_SELL_RATE });
   const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "inventory" | "batches" | "sales">("overview");
   const [salesPage, setSalesPage] = useState(1);
 
@@ -206,10 +212,10 @@ export default function Dashboard() {
       if (batchResult.data) setPurchaseBatches(batchResult.data as PurchaseBatch[]);
       if (s.data) setSales(s.data as SaleItem[]);
       if (cfg.data) {
-        const s: Settings = { buy_rate: 36.5, sell_rate: 5.0 };
+        const s: Settings = { buy_rate: DEFAULT_BUY_RATE, sell_rate: DEFAULT_SELL_RATE };
         cfg.data.forEach((r: { key: string; value: number }) => {
           if (r.key === "buy_rate") s.buy_rate = r.value;
-          if (r.key === "sell_rate") s.sell_rate = r.value;
+          if (r.key === "sell_rate") s.sell_rate = normalizeSellRate(r.value);
         });
         setSettings(s);
       }
