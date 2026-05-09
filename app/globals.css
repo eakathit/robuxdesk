@@ -443,6 +443,78 @@ select.input-base { cursor: pointer; }
   background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(244,238,255,0.72));
 }
 
+.batch-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: -4px 0 18px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 10px 28px rgba(54, 35, 112, 0.06);
+}
+
+.batch-filter-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(139, 63, 242, 0.14);
+  border-radius: 12px;
+  background: rgba(244, 238, 255, 0.72);
+}
+
+.batch-filter-tabs button {
+  min-height: 30px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-thai), 'Noto Sans Thai', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.batch-filter-tabs button.active {
+  background: linear-gradient(135deg, #9B5CFF, #7C2CF3);
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(139, 63, 242, 0.2);
+}
+
+.batch-date-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--accent-gold);
+}
+
+.batch-date-picker input {
+  width: 132px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-thai), 'Noto Sans Thai', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.batch-filter-count {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .batch-progress {
   height: 8px;
   overflow: hidden;
@@ -684,6 +756,29 @@ select.input-base { cursor: pointer; }
 }
 
 @media (max-width: 720px) {
+  .batch-filter-bar {
+    align-items: stretch;
+  }
+
+  .batch-filter-tabs,
+  .batch-date-picker,
+  .batch-filter-count {
+    width: 100%;
+  }
+
+  .batch-filter-tabs button {
+    flex: 1;
+  }
+
+  .batch-date-picker input {
+    width: 100%;
+  }
+
+  .batch-filter-count {
+    margin-left: 0;
+    text-align: center;
+  }
+
   .pagination-bar {
     align-items: stretch;
     flex-direction: column;

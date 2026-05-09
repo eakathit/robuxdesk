@@ -6,7 +6,7 @@ import {
   Wallet, Package, TrendingUp, Plus, DollarSign,
   Activity, ChevronLeft, ChevronRight, X, CheckCircle, Trash2,
   BarChart3, ArrowUpRight, ArrowDownRight, Coins, RefreshCw, LogOut,
-  Key, Copy, Save, Globe, ShieldCheck, ShieldOff, EyeOff // <-- เพิ่มไอคอนใหม่
+  Key, Copy, Save, Globe, ShieldCheck, ShieldOff, EyeOff, Calendar // <-- เพิ่มไอคอนใหม่
 } from "lucide-react";
 import { Layers } from "lucide-react";
 import { Calculator } from "lucide-react";
@@ -163,6 +163,8 @@ export default function Dashboard() {
   const [settings, setSettings] = useState<Settings>({ buy_rate: DEFAULT_BUY_RATE, sell_rate: DEFAULT_SELL_RATE });
   const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "inventory" | "batches" | "sales">("overview");
   const [salesPage, setSalesPage] = useState(1);
+  const [batchDateFilterMode, setBatchDateFilterMode] = useState<"all" | "today" | "custom">("all");
+  const [batchDateFilter, setBatchDateFilter] = useState(todayInputValue());
 
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
@@ -289,6 +291,11 @@ export default function Dashboard() {
       projectedProfitTHB: profitTHB - lossTHB - potentialLossTHB,
       soldPercent: robuxTotal > 0 ? ((robuxTotal - robuxRemaining) / robuxTotal) * 100 : 0,
     };
+  });
+  const activeBatchDateFilter = batchDateFilterMode === "today" ? todayInputValue() : batchDateFilter;
+  const filteredBatchSummaries = batchSummaries.filter((summary) => {
+    if (batchDateFilterMode === "all") return true;
+    return (summary.batch.purchase_date || "").slice(0, 10) === activeBatchDateFilter;
   });
 
   useEffect(() => {
@@ -985,15 +992,57 @@ export default function Dashboard() {
               </button>
             </div>
 
+            {purchaseBatches.length > 0 && (
+              <div className="batch-filter-bar">
+                <div className="batch-filter-tabs" aria-label="ตัวกรองวันที่รอบซื้อ">
+                  <button
+                    className={batchDateFilterMode === "all" ? "active" : ""}
+                    onClick={() => setBatchDateFilterMode("all")}
+                  >
+                    ทั้งหมด
+                  </button>
+                  <button
+                    className={batchDateFilterMode === "today" ? "active" : ""}
+                    onClick={() => {
+                      setBatchDateFilter(todayInputValue());
+                      setBatchDateFilterMode("today");
+                    }}
+                  >
+                    วันนี้
+                  </button>
+                </div>
+                <label className="batch-date-picker">
+                  <Calendar size={14} />
+                  <input
+                    type="date"
+                    value={activeBatchDateFilter}
+                    onChange={(e) => {
+                      setBatchDateFilter(e.target.value);
+                      setBatchDateFilterMode("custom");
+                    }}
+                  />
+                </label>
+                <span className="batch-filter-count">
+                  แสดง {filteredBatchSummaries.length} / {purchaseBatches.length} รอบ
+                </span>
+              </div>
+            )}
+
             {purchaseBatches.length === 0 ? (
               <div className="card" style={{ padding: 48, textAlign: "center" }}>
                 <Layers size={32} style={{ color: "var(--text-muted)", margin: "0 auto 12px" }} />
                 <p style={{ color: "var(--text-primary)", fontSize: 15, fontWeight: 700 }}>ยังไม่มีรอบซื้อ</p>
                 <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>สร้างรอบซื้อได้จาก modal เพิ่มบัญชี โดย flow เดิมยังใช้ได้เหมือนเดิม</p>
               </div>
+            ) : filteredBatchSummaries.length === 0 ? (
+              <div className="card" style={{ padding: 40, textAlign: "center" }}>
+                <Calendar size={30} style={{ color: "var(--text-muted)", margin: "0 auto 12px" }} />
+                <p style={{ color: "var(--text-primary)", fontSize: 15, fontWeight: 700 }}>ไม่พบรอบซื้อในวันที่เลือก</p>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>ลองเลือกวันอื่นหรือกดดูทั้งหมด</p>
+              </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
-                {batchSummaries.map((summary) => (
+                {filteredBatchSummaries.map((summary) => (
                   <div key={summary.batch.id} className="card batch-card">
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 16 }}>
                       <div>
