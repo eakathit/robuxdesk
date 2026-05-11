@@ -663,7 +663,7 @@ select.input-base { cursor: pointer; }
 }
 
 .dashboard-chart-card.wide {
-  grid-row: span 2;
+  grid-row: auto;
 }
 
 .dashboard-wide-note {
@@ -725,7 +725,7 @@ select.input-base { cursor: pointer; }
 .metric-pill.gold strong { color: var(--accent-gold); }
 
 .daily-chart {
-  min-height: 220px;
+  min-height: 198px;
 }
 
 .daily-chart-bars {
@@ -733,7 +733,7 @@ select.input-base { cursor: pointer; }
   grid-template-columns: repeat(14, minmax(28px, 1fr));
   align-items: end;
   gap: 9px;
-  min-height: 176px;
+  min-height: 156px;
   padding: 14px 4px 2px;
   border-bottom: 1px solid var(--border);
 }
@@ -746,7 +746,7 @@ select.input-base { cursor: pointer; }
 }
 
 .daily-chart-columns {
-  height: 140px;
+  height: 124px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
