@@ -152,6 +152,132 @@ function LoadingScreen() {
   );
 }
 
+function EmptyChart({ label }: { label: string }) {
+  return (
+    <div className="chart-empty">
+      <BarChart3 size={22} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function MetricPill({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "green" | "red" | "blue" | "gold" | "neutral" }) {
+  return (
+    <div className={`metric-pill ${tone}`}>
+      <span>{label}</span>
+      <strong className="num">{value}</strong>
+    </div>
+  );
+}
+
+function DailyProfitChart({
+  data,
+}: {
+  data: Array<{ key: string; label: string; revenue: number; cost: number; profit: number }>;
+}) {
+  const maxValue = Math.max(1, ...data.flatMap((d) => [d.revenue, d.cost, Math.abs(d.profit)]));
+  const hasData = data.some((d) => d.revenue > 0 || d.cost > 0 || d.profit !== 0);
+  if (!hasData) return <EmptyChart label="ยังไม่มีข้อมูลขายรายวัน" />;
+
+  return (
+    <div className="daily-chart">
+      <div className="daily-chart-bars">
+        {data.map((day) => {
+          const profitHeight = Math.max(4, (Math.abs(day.profit) / maxValue) * 132);
+          return (
+            <div className="daily-chart-day" key={day.key} title={`${day.label}: ${fmtTHB(day.profit)}`}>
+              <div className="daily-chart-columns">
+                <span className="bar revenue" style={{ height: `${Math.max(4, (day.revenue / maxValue) * 132)}px` }} />
+                <span className="bar cost" style={{ height: `${Math.max(4, (day.cost / maxValue) * 132)}px` }} />
+                <span className={`bar profit ${day.profit < 0 ? "negative" : ""}`} style={{ height: `${profitHeight}px` }} />
+              </div>
+              <span className="daily-chart-label">{day.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="chart-legend">
+        <span><i className="legend-dot revenue" />ยอดขาย</span>
+        <span><i className="legend-dot cost" />ต้นทุน</span>
+        <span><i className="legend-dot profit" />กำไร</span>
+      </div>
+    </div>
+  );
+}
+
+function HorizontalBarChart({
+  data,
+  valueFormatter,
+  emptyLabel,
+}: {
+  data: Array<{ id: string; label: string; value: number; sub?: string }>;
+  valueFormatter: (value: number) => string;
+  emptyLabel: string;
+}) {
+  const maxValue = Math.max(1, ...data.map((item) => Math.abs(item.value)));
+  if (data.length === 0 || data.every((item) => item.value === 0)) return <EmptyChart label={emptyLabel} />;
+
+  return (
+    <div className="horizontal-chart">
+      {data.map((item) => (
+        <div className="horizontal-row" key={item.id}>
+          <div className="horizontal-row-head">
+            <span>{item.label}</span>
+            <strong className="num" style={{ color: item.value >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>
+              {valueFormatter(item.value)}
+            </strong>
+          </div>
+          <div className="horizontal-track">
+            <div
+              className={item.value >= 0 ? "horizontal-fill positive" : "horizontal-fill negative"}
+              style={{ width: `${Math.max(3, (Math.abs(item.value) / maxValue) * 100)}%` }}
+            />
+          </div>
+          {item.sub && <p>{item.sub}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InventoryStatusChart({ counts }: { counts: Record<InventoryItem["status"], number> }) {
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const segments = [
+    { key: "available", label: "พร้อมขาย", color: "var(--accent-green)" },
+    { key: "sold", label: "ขายแล้ว", color: "var(--accent-blue)" },
+    { key: "banned", label: "โดน Ban", color: "var(--accent-red)" },
+    { key: "inactive", label: "ปิดใช้งาน", color: "var(--text-muted)" },
+  ] as const;
+
+  if (total === 0) return <EmptyChart label="ยังไม่มีบัญชีในสต็อก" />;
+
+  return (
+    <div className="status-chart">
+      <div className="status-track">
+        {segments.map((segment) => (
+          <span
+            key={segment.key}
+            style={{
+              width: `${(counts[segment.key] / total) * 100}%`,
+              background: segment.color,
+            }}
+            title={`${segment.label}: ${counts[segment.key]}`}
+          />
+        ))}
+      </div>
+      <div className="status-legend">
+        {segments.map((segment) => (
+          <div key={segment.key}>
+            <i style={{ background: segment.color }} />
+            <span>{segment.label}</span>
+            <strong className="num">{counts[segment.key]}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Dashboard ─────────────────────────────────────────────────────────
 export default function Dashboard() {
   const router = useRouter();
@@ -297,6 +423,74 @@ export default function Dashboard() {
     if (batchDateFilterMode === "all") return true;
     return (summary.batch.purchase_date || "").slice(0, 10) === activeBatchDateFilter;
   });
+  const todayKey = todayInputValue();
+  const monthKey = todayKey.slice(0, 7);
+  const todaySales = sales.filter((sale) => (sale.created_at || "").slice(0, 10) === todayKey);
+  const monthSales = sales.filter((sale) => (sale.created_at || "").slice(0, 7) === monthKey);
+  const totalSalesCostTHB = sales.reduce((sum, sale) => sum + (sale.total_cost_thb || 0), 0);
+  const monthRevenueTHB = monthSales.reduce((sum, sale) => sum + (sale.selling_price_thb || 0), 0);
+  const todayProfitTHB = todaySales.reduce((sum, sale) => sum + (sale.net_profit || 0), 0);
+  const monthProfitTHB = monthSales.reduce((sum, sale) => sum + (sale.net_profit || 0), 0);
+  const overallRoiPercent = totalSalesCostTHB > 0 ? (totalNetProfit / totalSalesCostTHB) * 100 : 0;
+  const trappedStockTHB = availableAccounts.reduce((sum, account) => sum + (account.remaining_robux || 0) * (account.unit_cost_thb || 0), 0);
+  const sellDurations = sales
+    .map((sale) => {
+      if (!sale.inventory?.created_at || !sale.created_at) return null;
+      const start = new Date(sale.inventory.created_at).getTime();
+      const end = new Date(sale.created_at).getTime();
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+      return (end - start) / (1000 * 60 * 60 * 24);
+    })
+    .filter((days): days is number => days !== null);
+  const avgDaysToSell = sellDurations.length > 0 ? sellDurations.reduce((sum, days) => sum + days, 0) / sellDurations.length : 0;
+  const inventoryStatusCounts = inventory.reduce<Record<InventoryItem["status"], number>>(
+    (counts, account) => {
+      counts[account.status] += 1;
+      return counts;
+    },
+    { available: 0, sold: 0, banned: 0, inactive: 0 },
+  );
+  const dailyProfitData = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (13 - index));
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    const key = date.toISOString().slice(0, 10);
+    const daySales = sales.filter((sale) => (sale.created_at || "").slice(0, 10) === key);
+    return {
+      key,
+      label: date.toLocaleDateString("th-TH", { day: "2-digit", month: "short" }),
+      revenue: daySales.reduce((sum, sale) => sum + (sale.selling_price_thb || 0), 0),
+      cost: daySales.reduce((sum, sale) => sum + (sale.total_cost_thb || 0), 0),
+      profit: daySales.reduce((sum, sale) => sum + (sale.net_profit || 0), 0),
+    };
+  });
+  const topProfitBatches = [...batchSummaries]
+    .sort((a, b) => b.realProfitTHB - a.realProfitTHB)
+    .slice(0, 6)
+    .map((summary) => ({
+      id: summary.batch.id,
+      label: summary.batch.name,
+      value: summary.realProfitTHB,
+      sub: `ขายแล้ว ${fmt(summary.soldPercent, 1)}% - ROI ${summary.costTHB > 0 ? fmt((summary.realProfitTHB / summary.costTHB) * 100, 1) : "0.0"}%`,
+    }));
+  const stockByBatch = [...batchSummaries]
+    .map((summary) => ({
+      id: summary.batch.id,
+      label: summary.batch.name,
+      value: summary.robuxRemaining > 0 && summary.robuxTotal > 0 ? summary.costTHB * (summary.robuxRemaining / summary.robuxTotal) : 0,
+      sub: `${fmtRobux(summary.robuxRemaining)} คงเหลือ`,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+  const topBatch = batchSummaries.reduce<typeof batchSummaries[number] | null>((best, summary) => {
+    if (!best || summary.realProfitTHB > best.realProfitTHB) return summary;
+    return best;
+  }, null);
+  const topRoiBatch = batchSummaries.reduce<typeof batchSummaries[number] | null>((best, summary) => {
+    const roi = summary.costTHB > 0 ? summary.realProfitTHB / summary.costTHB : -Infinity;
+    const bestRoi = best && best.costTHB > 0 ? best.realProfitTHB / best.costTHB : -Infinity;
+    return roi > bestRoi ? summary : best;
+  }, null);
 
   useEffect(() => {
     setSalesPage((page) => Math.min(page, Math.max(1, Math.ceil(sales.length / SALES_PER_PAGE))));
@@ -715,6 +909,69 @@ export default function Dashboard() {
           <StatCard icon={<ShieldOff size={18} />} label="Loss / 損 (ขาดทุน)" value={totalLossFromBans > 0 ? `-${fmtTHB(totalLossFromBans)}` : fmtTHB(0)} sub={`${inventory.filter(a => a.status === "banned").length} บัญชีโดน Ban`} accent="red" />
           <StatCard icon={<TrendingUp size={18} />} label="กำไรสุทธิ (หักความเสี่ยง)" value={fmtTHB(realNetProfit)} sub={`${sales.length} รายการขาย`} accent={realNetProfit >= 0 ? "green" : "red"} />
         </div>
+
+        {activeTab === "overview" && (
+          <section className="dashboard-snapshot animate-fade-up">
+            <div className="dashboard-chart-card wide">
+              <div className="chart-card-head">
+                <div>
+                  <h3>กำไรรายวัน</h3>
+                  <p>ยอดขาย ต้นทุน และกำไรในช่วง 14 วันล่าสุด</p>
+                </div>
+                <MetricPill label="กำไรเดือนนี้" value={fmtTHB(monthProfitTHB)} tone={monthProfitTHB >= 0 ? "green" : "red"} />
+              </div>
+              <DailyProfitChart data={dailyProfitData} />
+            </div>
+
+            <div className="dashboard-chart-card">
+              <div className="chart-card-head">
+                <div>
+                  <h3>กำไรตาม Batch</h3>
+                  <p>เรียงจากกำไรหลังหัก Ban loss ที่บันทึกไว้</p>
+                </div>
+              </div>
+              <HorizontalBarChart data={topProfitBatches} valueFormatter={(value) => fmtTHB(value)} emptyLabel="ยังไม่มี batch ที่มีกำไร" />
+            </div>
+
+            <div className="dashboard-chart-card">
+              <div className="chart-card-head">
+                <div>
+                  <h3>เงินจมในสต็อก</h3>
+                  <p>มูลค่าต้นทุน Robux ที่ยังไม่ขาย แยกตาม batch</p>
+                </div>
+                <MetricPill label="รวม" value={fmtTHB(trappedStockTHB)} tone="gold" />
+              </div>
+              <HorizontalBarChart data={stockByBatch} valueFormatter={(value) => fmtTHB(value)} emptyLabel="ยังไม่มีสต็อกค้างใน batch" />
+            </div>
+
+            <div className="dashboard-chart-card">
+              <div className="chart-card-head">
+                <div>
+                  <h3>สถานะบัญชี</h3>
+                  <p>สัดส่วนพร้อมขาย ขายแล้ว โดน Ban และปิดใช้งาน</p>
+                </div>
+              </div>
+              <InventoryStatusChart counts={inventoryStatusCounts} />
+              <div className="dashboard-mini-metrics">
+                <MetricPill label="กำไรวันนี้" value={fmtTHB(todayProfitTHB)} tone={todayProfitTHB >= 0 ? "green" : "red"} />
+                <MetricPill label="ยอดขายเดือนนี้" value={fmtTHB(monthRevenueTHB)} tone="blue" />
+                <MetricPill label="ROI รวม" value={`${fmt(overallRoiPercent, 1)}%`} tone={overallRoiPercent >= 0 ? "green" : "red"} />
+                <MetricPill label="ขายออกเฉลี่ย" value={sellDurations.length > 0 ? `${fmt(avgDaysToSell, 1)} วัน` : "--"} tone="blue" />
+              </div>
+            </div>
+
+            <div className="dashboard-chart-card dashboard-wide-note">
+              <div className="dashboard-best-row">
+                <MetricPill label="Batch ดีสุด" value={topBatch ? fmtTHB(topBatch.realProfitTHB) : "--"} tone={topBatch && topBatch.realProfitTHB < 0 ? "red" : "green"} />
+                <div>
+                  <h3>{topBatch ? topBatch.batch.name : "ยังไม่มี performance ของ batch"}</h3>
+                  <p>{topBatch ? `ขายแล้ว ${fmt(topBatch.soldPercent, 1)}% - คงเหลือ ${fmtRobux(topBatch.robuxRemaining)}` : "สร้าง batch จาก flow เพิ่มบัญชีเพื่อปลดล็อกอันดับ batch"}</p>
+                </div>
+                <MetricPill label="ROI ดีสุด" value={topRoiBatch && topRoiBatch.costTHB > 0 ? `${fmt((topRoiBatch.realProfitTHB / topRoiBatch.costTHB) * 100, 1)}%` : "--"} tone="green" />
+              </div>
+            </div>
+          </section>
+        )}
 
         <div style={{ display: "flex", gap: 6, marginBottom: 24, padding: 4, background: "rgba(255,255,255,0.82)", borderRadius: 12, border: "1px solid var(--border)", width: "fit-content", boxShadow: "0 10px 30px rgba(54, 35, 112, 0.08)" }}>
           {tabs.map((t) => (
